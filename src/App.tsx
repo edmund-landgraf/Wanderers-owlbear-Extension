@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CombatantView, EncounterSourceState, ViewerRole } from "./types";
-import { getViewerRole, isOwlbearAvailable, subscribeToViewerRole } from "./owbear";
+import {
+  getSceneTokenVisuals,
+  getViewerRole,
+  isOwlbearAvailable,
+  subscribeToSceneTokenVisuals,
+  subscribeToViewerRole
+} from "./owbear";
+import {
+  matchCombatantsToTokens,
+  type OwlbearTokenVisual
+} from "./tokenMatch";
+import {
+  getManualTokenColor,
+  saveManualTokenColor,
+  TOKEN_COLOR_PALETTE
+} from "./tokenPreferences";
 import { getPollInterval, loadEncounter } from "./wgui";
 
 function signed(value?: number | null) {
   if (value === null || value === undefined) return "—";
   return value >= 0 ? `+${value}` : String(value);
-}
-
-function tokenColor(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return `hsl(${hash % 360} 72% 55%)`;
 }
 
 function hpLabel(combatant: CombatantView) {
@@ -24,16 +33,96 @@ function hpLabel(combatant: CombatantView) {
   return hp.state ?? "—";
 }
 
-function InitialToken({ combatant }: { combatant: CombatantView }) {
+function TokenAvatar({
+  combatant,
+  tokenVisual,
+  manualColor
+}: {
+  combatant: CombatantView;
+  tokenVisual?: OwlbearTokenVisual;
+  manualColor: string | null;
+}) {
   const initial = (combatant.initial || combatant.name.slice(0, 1) || "?").toUpperCase();
+
+  if (tokenVisual) {
+    return (
+      <div className="initial-token token-image-wrap" title={`Matched Owlbear token: ${tokenVisual.name}`}>
+        <img className="token-image" src={tokenVisual.imageUrl} alt="" />
+      </div>
+    );
+  }
+
   return (
-    <div className="initial-token" style={{ background: tokenColor(combatant.name) }} aria-hidden="true">
+    <div
+      className={`initial-token ${manualColor ? "manual-token-color" : "unmatched-token"}`}
+      style={{ background: manualColor ?? "#334155" }}
+      title={manualColor ? "Manual token color" : "No Owlbear token match"}
+      aria-hidden="true"
+    >
       {initial}
     </div>
   );
 }
 
-function DetailPanel({ combatant, role }: { combatant: CombatantView; role: ViewerRole }) {
+function TokenColorEditor({
+  combatant,
+  tokenVisual,
+  manualColor,
+  onColorChange
+}: {
+  combatant: CombatantView;
+  tokenVisual?: OwlbearTokenVisual;
+  manualColor: string | null;
+  onColorChange: (color: string) => void;
+}) {
+  if (tokenVisual) {
+    return (
+      <div className="token-match-status matched">
+        <span className="match-dot" />
+        Matched Owlbear token by name
+      </div>
+    );
+  }
+
+  return (
+    <div className="token-color-editor">
+      <div className="token-color-copy">
+        <span className="detail-label">Token color</span>
+        <span className="muted">
+          No exact Owlbear token match for {combatant.name}. Pick the matching map color.
+        </span>
+      </div>
+
+      <div className="token-color-palette" role="group" aria-label={`Token color for ${combatant.name}`}>
+        {TOKEN_COLOR_PALETTE.map((color) => (
+          <button
+            key={color}
+            type="button"
+            className={`token-color-choice ${manualColor === color ? "selected" : ""}`}
+            style={{ background: color }}
+            aria-label={`Set ${combatant.name} token color to ${color}`}
+            aria-pressed={manualColor === color}
+            onClick={() => onColorChange(color)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DetailPanel({
+  combatant,
+  role,
+  tokenVisual,
+  manualColor,
+  onColorChange
+}: {
+  combatant: CombatantView;
+  role: ViewerRole;
+  tokenVisual?: OwlbearTokenVisual;
+  manualColor: string | null;
+  onColorChange: (color: string) => void;
+}) {
   const saves = combatant.saves;
   const enemyFiltered = role === "PLAYER" && combatant.side === "enemy";
 
@@ -66,12 +155,21 @@ function DetailPanel({ combatant, role }: { combatant: CombatantView; role: View
         <span className="detail-label">Conditions</span>
         {combatant.conditions?.length ? (
           <div className="condition-list">
-            {combatant.conditions.map((condition, index) => <span className="condition-chip" key={`${condition}-${index}`}>{condition}</span>)}
+            {combatant.conditions.map((condition, index) => (
+              <span className="condition-chip" key={`${condition}-${index}`}>{condition}</span>
+            ))}
           </div>
         ) : (
           <span className="muted">None</span>
         )}
       </div>
+
+      <TokenColorEditor
+        combatant={combatant}
+        tokenVisual={tokenVisual}
+        manualColor={manualColor}
+        onColorChange={onColorChange}
+      />
     </div>
   );
 }
@@ -80,22 +178,31 @@ function CombatantRow({
   combatant,
   role,
   open,
-  onToggle
+  onToggle,
+  tokenVisual,
+  manualColor,
+  onColorChange
 }: {
   combatant: CombatantView;
   role: ViewerRole;
   open: boolean;
   onToggle: () => void;
+  tokenVisual?: OwlbearTokenVisual;
+  manualColor: string | null;
+  onColorChange: (color: string) => void;
 }) {
   const playerEnemy = role === "PLAYER" && combatant.side === "enemy";
   const conditions = combatant.conditions ?? [];
 
   return (
-    <article className={`combatant-row ${combatant.active ? "is-active" : ""}`}>
+    <article
+      className={`combatant-row ${combatant.active ? "is-active" : ""}`}
+      data-token-match={tokenVisual ? "matched" : manualColor ? "manual" : "unmatched"}
+    >
       <button className="combatant-main" type="button" onClick={onToggle} aria-expanded={open}>
         <div className="initiative">{combatant.initiative ?? "—"}</div>
 
-        <InitialToken combatant={combatant} />
+        <TokenAvatar combatant={combatant} tokenVisual={tokenVisual} manualColor={manualColor} />
 
         <div className="identity">
           <strong>{combatant.name}</strong>
@@ -126,7 +233,15 @@ function CombatantRow({
         <div className="chevron" aria-hidden="true">{open ? "⌃" : "⌄"}</div>
       </button>
 
-      {open && <DetailPanel combatant={combatant} role={role} />}
+      {open && (
+        <DetailPanel
+          combatant={combatant}
+          role={role}
+          tokenVisual={tokenVisual}
+          manualColor={manualColor}
+          onColorChange={onColorChange}
+        />
+      )}
     </article>
   );
 }
@@ -137,6 +252,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sceneTokens, setSceneTokens] = useState<OwlbearTokenVisual[]>([]);
+  const [manualColorVersion, setManualColorVersion] = useState(0);
   const obrAvailable = isOwlbearAvailable();
 
   useEffect(() => {
@@ -194,12 +311,54 @@ export default function App() {
     };
   }, [role]);
 
+  useEffect(() => {
+    if (!role || role !== "GM") {
+      setSceneTokens([]);
+      return;
+    }
+
+    let active = true;
+    getSceneTokenVisuals(role)
+      .then((tokens) => {
+        if (active) setSceneTokens(tokens);
+      })
+      .catch(() => {
+        if (active) setSceneTokens([]);
+      });
+
+    const unsubscribe = subscribeToSceneTokenVisuals(role, (tokens) => {
+      if (active) setSceneTokens(tokens);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [role]);
+
   const combatants = useMemo(
     () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
     [state]
   );
 
+  const tokenMatches = useMemo(
+    () => matchCombatantsToTokens(combatants, sceneTokens),
+    [combatants, sceneTokens]
+  );
+
   const encounter = state?.snapshot.encounter;
+  const campaignScope = encounter?.campaignName || "default-campaign";
+
+  const manualColorFor = (combatant: CombatantView) => {
+    // manualColorVersion intentionally participates so a saved choice re-renders immediately.
+    void manualColorVersion;
+    return getManualTokenColor(campaignScope, combatant.name);
+  };
+
+  const saveColor = (combatant: CombatantView, color: string) => {
+    saveManualTokenColor(campaignScope, combatant.name, color);
+    setManualColorVersion((value) => value + 1);
+  };
 
   if (!role) {
     return (
@@ -259,15 +418,23 @@ export default function App() {
           <div className="empty-state">No combatants in this encounter.</div>
         )}
 
-        {combatants.map((combatant) => (
-          <CombatantRow
-            key={combatant.id}
-            combatant={combatant}
-            role={role}
-            open={openId === combatant.id}
-            onToggle={() => setOpenId((current) => current === combatant.id ? null : combatant.id)}
-          />
-        ))}
+        {combatants.map((combatant) => {
+          const tokenVisual = tokenMatches.get(combatant.id);
+          const manualColor = tokenVisual ? null : manualColorFor(combatant);
+
+          return (
+            <CombatantRow
+              key={combatant.id}
+              combatant={combatant}
+              role={role}
+              open={openId === combatant.id}
+              onToggle={() => setOpenId((current) => current === combatant.id ? null : combatant.id)}
+              tokenVisual={tokenVisual}
+              manualColor={manualColor}
+              onColorChange={(color) => saveColor(combatant, color)}
+            />
+          );
+        })}
       </section>
 
       <footer className="status-bar">
