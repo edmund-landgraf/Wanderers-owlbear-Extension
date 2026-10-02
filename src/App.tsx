@@ -602,8 +602,6 @@ export default function App() {
   );
 
   const encounter = state?.snapshot.encounter;
-  const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
-  const selectedEncounter = encounters.find((option) => option.id === selectedEncounterId);
   const campaignScope = selectedCampaignId || encounter?.campaignName || "default-campaign";
   const ready = Boolean(selectedCampaignId && selectedEncounterId);
 
