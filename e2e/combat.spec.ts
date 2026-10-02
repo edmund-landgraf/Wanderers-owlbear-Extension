@@ -85,6 +85,27 @@ test.describe("WGUI combat panel", () => {
     await expect(page.locator("body")).not.toContainText("+12");
   });
 
+  test("unmatched token color can be selected and persists locally", async ({ page }) => {
+    await page.goto("/?role=GM");
+    await page.evaluate(() => window.localStorage.clear());
+    await page.reload();
+
+    const row = page.locator(".combatant-row").filter({ hasText: "Ulysses" });
+    await expect(row).toHaveAttribute("data-token-match", "unmatched");
+
+    await row.locator(".combatant-main").click();
+    const purple = row.getByRole("button", { name: "Set Ulysses token color to #6d28d9" });
+    await expect(purple).toBeVisible();
+    await purple.click();
+
+    await expect(row).toHaveAttribute("data-token-match", "manual");
+    await expect(purple).toHaveAttribute("aria-pressed", "true");
+
+    await page.reload();
+    const reloadedRow = page.locator(".combatant-row").filter({ hasText: "Ulysses" });
+    await expect(reloadedRow).toHaveAttribute("data-token-match", "manual");
+  });
+
   test("opening another combatant closes the previous detail panel", async ({ page }) => {
     await page.goto("/?role=GM");
 
