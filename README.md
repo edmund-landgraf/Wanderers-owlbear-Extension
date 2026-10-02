@@ -51,9 +51,13 @@ To install the local extension in Owlbear, point Owlbear at:
 http://localhost:5201/manifest.json
 ```
 
-## WGUI feed
+## WGUI connection
 
-Copy `.env.example` to `.env.local` and configure the WGUI campaign, encounter-list, and encounter-projection endpoints when they are ready. With no catalog endpoints configured, the UI exposes the built-in sample campaign and encounter.
+Copy `.env.example` to `.env.local` and copy the same public `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` values used by WGUI. The Owlbear extension then signs into the same Supabase auth service and stores its own browser session on the extension origin.
+
+With those values configured, campaign discovery uses the real WGUI/WG functions and the encounter dropdown calls `wgui-ext-find-encounter` for the selected campaign. GM view receives the campaigns owned by that WGUI account; Player view receives campaigns that account has joined through one of its characters.
+
+If the Supabase values are absent, the extension stays in sample mode for local UI development.
 
 The extension posts:
 
