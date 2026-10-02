@@ -1,5 +1,22 @@
 export type ViewerRole = "GM" | "PLAYER";
 
+export type CampaignOption = {
+  id: string;
+  name: string;
+  relation?: "owner" | "player" | null;
+};
+
+export type EncounterOption = {
+  id: string;
+  name: string;
+  combatantCount?: number | null;
+};
+
+export type EncounterSelection = {
+  campaignId: string;
+  fightId: string;
+};
+
 export type HpView = {
   current?: number | null;
   max?: number | null;
