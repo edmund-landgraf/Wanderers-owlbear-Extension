@@ -21,6 +21,24 @@ async function fetchChecked(url, expectedKind) {
   return response;
 }
 
+function assertAssetType(url, contentType) {
+  const path = new URL(url).pathname.toLowerCase();
+  const type = contentType.toLowerCase();
+
+  if (path.endsWith(".js") && !type.includes("javascript")) {
+    throw new Error(`JavaScript asset returned unexpected content type ${contentType}: ${url}`);
+  }
+  if (path.endsWith(".css") && !type.includes("text/css")) {
+    throw new Error(`CSS asset returned unexpected content type ${contentType}: ${url}`);
+  }
+  if (/\.(?:png|jpe?g|gif|webp|svg|ico)$/.test(path) && !type.includes("image/")) {
+    throw new Error(`Image asset returned unexpected content type ${contentType}: ${url}`);
+  }
+  if (path.endsWith(".webmanifest") && !(type.includes("manifest") || type.includes("json"))) {
+    throw new Error(`Web manifest returned unexpected content type ${contentType}: ${url}`);
+  }
+}
+
 try {
   const response = await fetchChecked(target, "WGUI route");
   console.log(`WGUI smoke: ${response.status} ${response.statusText} - ${response.url}`);
@@ -39,25 +57,32 @@ try {
     throw new Error(`WGUI route returned suspiciously small HTML (${html.length} bytes)`);
   }
 
-  const base = new URL(response.url);
+  const documentUrl = new URL(response.url);
+  const baseMatch = html.match(/<base\b[^>]+href=["']([^"']+)["']/i);
+  const assetBase = baseMatch ? new URL(baseMatch[1], documentUrl) : documentUrl;
+
   const assetRefs = new Set();
   for (const match of html.matchAll(/<(?:script|link)\b[^>]+(?:src|href)=["']([^"'#?]+)["']/gi)) {
     const ref = match[1];
     if (!ref || ref.startsWith("data:")) continue;
-    const url = new URL(ref, base);
-    if (url.origin === base.origin) assetRefs.add(url.href);
+    const url = new URL(ref, assetBase);
+    if (url.origin === documentUrl.origin) assetRefs.add(url.href);
   }
 
   const assets = [...assetRefs].slice(0, 12);
   for (const assetUrl of assets) {
     const assetResponse = await fetchChecked(assetUrl, "WGUI asset");
     const assetType = assetResponse.headers.get("content-type") || "";
+    assertAssetType(assetUrl, assetType);
+
     const bytes = (await assetResponse.arrayBuffer()).byteLength;
     if (bytes === 0) throw new Error(`WGUI asset was empty: ${assetUrl}`);
     console.log(`WGUI asset: ${assetResponse.status} ${bytes} bytes ${assetType} - ${assetUrl}`);
   }
 
-  console.log(`WGUI smoke body: ${html.length} bytes, content-type ${contentType}, checked ${assets.length} same-origin assets`);
+  console.log(
+    `WGUI smoke body: ${html.length} bytes, content-type ${contentType}, base ${assetBase.href}, checked ${assets.length} same-origin assets`
+  );
 } finally {
   clearTimeout(timer);
 }
