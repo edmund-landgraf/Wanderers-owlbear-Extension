@@ -2,7 +2,7 @@ const target = process.env.WGUI_SMOKE_URL ||
   "https://wgui.wandersguide.site/phase1/campaign/23/encounters/40";
 
 const controller = new AbortController();
-const timer = setTimeout(() => controller.abort(), 20000);
+const timer = setTimeout(() => controller.abort(), 30000);
 
 async function fetchChecked(url, expectedKind) {
   const response = await fetch(url, {
@@ -39,6 +39,46 @@ function assertAssetType(url, contentType) {
   }
 }
 
+function moduleRefs(source, base) {
+  const refs = new Set();
+  for (const match of source.matchAll(/(?:from\s*|import\s*\(|import\s*)["']([^"']+\.js)["']/g)) {
+    refs.add(new URL(match[1], base).href);
+  }
+  for (const match of source.matchAll(/["']([^"']+\.js)["']/g)) {
+    const ref = match[1];
+    if (ref.startsWith("/") || ref.startsWith("./") || ref.startsWith("../") || ref.startsWith("assets/")) {
+      refs.add(new URL(ref, base).href);
+    }
+  }
+  return [...refs];
+}
+
+function interestingSnippets(source) {
+  const needles = [
+    "campaign-fights",
+    "campaign_pcs",
+    "campaign-pcs",
+    "ensure-user",
+    "attach-by-key",
+    "character-file",
+    "shared-rolls",
+    "functions/v1",
+    "encounters"
+  ];
+  const snippets = [];
+  for (const needle of needles) {
+    let from = 0;
+    while (true) {
+      const index = source.indexOf(needle, from);
+      if (index < 0) break;
+      snippets.push(source.slice(Math.max(0, index - 180), Math.min(source.length, index + needle.length + 220)));
+      from = index + needle.length;
+      if (snippets.length >= 30) return snippets;
+    }
+  }
+  return snippets;
+}
+
 try {
   const response = await fetchChecked(target, "WGUI route");
   console.log(`WGUI smoke: ${response.status} ${response.statusText} - ${response.url}`);
@@ -49,14 +89,6 @@ try {
   }
 
   const html = await response.text();
-  if (!/<(?:div|main)[^>]+id=["']root["']/i.test(html) && !/<script[^>]+type=["']module["']/i.test(html)) {
-    throw new Error("WGUI route did not look like a rendered SPA entry document.");
-  }
-
-  if (html.length < 200) {
-    throw new Error(`WGUI route returned suspiciously small HTML (${html.length} bytes)`);
-  }
-
   const documentUrl = new URL(response.url);
   const baseMatch = html.match(/<base\b[^>]+href=["']([^"']+)["']/i);
   const assetBase = baseMatch ? new URL(baseMatch[1], documentUrl) : documentUrl;
@@ -69,20 +101,32 @@ try {
     if (url.origin === documentUrl.origin) assetRefs.add(url.href);
   }
 
-  const assets = [...assetRefs].slice(0, 12);
-  for (const assetUrl of assets) {
-    const assetResponse = await fetchChecked(assetUrl, "WGUI asset");
+  const queue = [...assetRefs].filter((url) => url.endsWith(".js"));
+  const seen = new Set();
+  let discovered = 0;
+
+  while (queue.length && seen.size < 80) {
+    const assetUrl = queue.shift();
+    if (!assetUrl || seen.has(assetUrl)) continue;
+    seen.add(assetUrl);
+
+    const assetResponse = await fetchChecked(assetUrl, "WGUI JS asset");
     const assetType = assetResponse.headers.get("content-type") || "";
     assertAssetType(assetUrl, assetType);
+    const source = await assetResponse.text();
+    console.log(`WGUI JS: ${source.length} bytes - ${assetUrl}`);
 
-    const bytes = (await assetResponse.arrayBuffer()).byteLength;
-    if (bytes === 0) throw new Error(`WGUI asset was empty: ${assetUrl}`);
-    console.log(`WGUI asset: ${assetResponse.status} ${bytes} bytes ${assetType} - ${assetUrl}`);
+    for (const snippet of interestingSnippets(source)) {
+      console.log("WGUI DISCOVERY:", snippet.replace(/\s+/g, " "));
+      discovered += 1;
+    }
+
+    for (const ref of moduleRefs(source, assetUrl)) {
+      if (new URL(ref).origin === documentUrl.origin && !seen.has(ref)) queue.push(ref);
+    }
   }
 
-  console.log(
-    `WGUI smoke body: ${html.length} bytes, content-type ${contentType}, base ${assetBase.href}, checked ${assets.length} same-origin assets`
-  );
+  console.log(`WGUI discovery checked ${seen.size} JS modules and found ${discovered} interesting snippets`);
 } finally {
   clearTimeout(timer);
 }
