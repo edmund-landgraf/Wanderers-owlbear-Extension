@@ -218,6 +218,7 @@ export default function App() {
 
       <section className="table-head" aria-hidden="true">
         <span>INIT</span>
+        <span></span>
         <span>COMBATANT</span>
         <span>CONDITIONS</span>
         <span>AC</span>
