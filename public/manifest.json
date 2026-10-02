@@ -1,0 +1,16 @@
+{
+  "name": "Wanderer's Guide Combat",
+  "version": "0.1.0",
+  "manifest_version": 1,
+  "author": "UNWHELM.NET",
+  "description": "A read-only Wanderer's Guide combat view for Owlbear Rodeo.",
+  "icon": "/wanderers-mark.svg",
+  "homepage_url": "https://github.com/edmund-landgraf/Wanderers-owlbear-Extension",
+  "action": {
+    "title": "Wanderer's Guide",
+    "icon": "/wanderers-mark.svg",
+    "popover": "/",
+    "height": 760,
+    "width": 560
+  }
+}
