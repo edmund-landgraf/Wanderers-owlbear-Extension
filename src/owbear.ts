@@ -1,6 +1,7 @@
 import OBR, { isImage } from "@owlbear-rodeo/sdk";
 import type { Item } from "@owlbear-rodeo/sdk";
 import type { OwlbearTokenVisual } from "./tokenMatch";
+import { readTokenBackgroundColor } from "./tokenColor";
 import type { ViewerRole } from "./types";
 
 function queryRole(): ViewerRole | null {
@@ -18,7 +19,6 @@ export async function getViewerRole(): Promise<ViewerRole> {
       try {
         resolve(await OBR.player.getRole());
       } catch {
-        // Fail closed if the embedded SDK cannot establish the user's role.
         resolve("PLAYER");
       }
     });
@@ -48,21 +48,22 @@ export function subscribeToViewerRole(onRole: (role: ViewerRole) => void): () =>
   };
 }
 
-function itemToTokenVisual(item: Item): OwlbearTokenVisual | null {
+async function itemToTokenVisual(item: Item): Promise<OwlbearTokenVisual | null> {
   if (item.layer !== "CHARACTER" || !isImage(item) || !item.name?.trim()) return null;
   if (!item.image?.url) return null;
+
+  const backgroundColor = await readTokenBackgroundColor(item.image.url, item.image.mime);
 
   return {
     id: item.id,
     name: item.name,
-    imageUrl: item.image.url
+    backgroundColor
   };
 }
 
-function tokenVisualsFromItems(items: Item[]): OwlbearTokenVisual[] {
-  return items
-    .map(itemToTokenVisual)
-    .filter((item): item is OwlbearTokenVisual => item !== null);
+async function tokenVisualsFromItems(items: Item[]): Promise<OwlbearTokenVisual[]> {
+  const resolved = await Promise.all(items.map(itemToTokenVisual));
+  return resolved.filter((item): item is OwlbearTokenVisual => item !== null);
 }
 
 async function waitUntilReady(): Promise<void> {
@@ -91,7 +92,9 @@ export function subscribeToSceneTokenVisuals(
     if (!active) return;
     unsubscribeItems();
     unsubscribeItems = OBR.scene.items.onChange((items) => {
-      onTokens(tokenVisualsFromItems(items));
+      void tokenVisualsFromItems(items).then((tokens) => {
+        if (active) onTokens(tokens);
+      });
     });
   };
 
