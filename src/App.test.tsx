@@ -19,7 +19,9 @@ vi.mock("./owbear", () => ({
     return () => {
       mocks.roleChange = null;
     };
-  }
+  },
+  getSceneTokenVisuals: async () => [],
+  subscribeToSceneTokenVisuals: () => () => {}
 }));
 
 vi.mock("./wgui", () => ({
