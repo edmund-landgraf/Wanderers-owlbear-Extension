@@ -2,7 +2,7 @@ import type { EncounterSnapshot, ViewerRole } from "./types";
 
 const full: EncounterSnapshot = {
   encounter: {
-    id: "sample-wg-combat-test",
+    id: "40",
     name: "wg combat test",
     campaignName: "The Price of Prophecy (Production)",
     location: "Reiver's Right",
@@ -20,12 +20,16 @@ const full: EncounterSnapshot = {
   ]
 };
 
-export function getSampleEncounter(role: ViewerRole): EncounterSnapshot {
-  if (role === "GM") return full;
+const sampleEncounterNames: Record<string, string> = {
+  "40": "wg combat test",
+  "sample-getting-darkwood": "Getting the Darkwood",
+  "sample-test-2": "test 2"
+};
 
+function projectForPlayer(snapshot: EncounterSnapshot): EncounterSnapshot {
   return {
-    ...full,
-    combatants: full.combatants.map((combatant) => {
+    ...snapshot,
+    combatants: snapshot.combatants.map((combatant) => {
       if (combatant.side !== "enemy") return combatant;
       const current = combatant.hp?.current ?? null;
       const max = combatant.hp?.max ?? null;
@@ -52,4 +56,27 @@ export function getSampleEncounter(role: ViewerRole): EncounterSnapshot {
       };
     })
   };
+}
+
+export function getSampleEncounter(
+  role: ViewerRole,
+  fightId = "40"
+): EncounterSnapshot {
+  const name = sampleEncounterNames[fightId] ?? "Sample encounter";
+
+  const snapshot: EncounterSnapshot = fightId === "40"
+    ? full
+    : {
+        encounter: {
+          id: fightId,
+          name,
+          campaignName: "The Price of Prophecy (Production)",
+          round: null
+        },
+        // We know these encounters exist from WGUI, but we do not invent their
+        // combatants while the authenticated live feed is unavailable.
+        combatants: []
+      };
+
+  return role === "GM" ? snapshot : projectForPlayer(snapshot);
 }
