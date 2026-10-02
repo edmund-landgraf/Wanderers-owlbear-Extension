@@ -32,15 +32,13 @@ export function subscribeToViewerRole(onRole: (role: ViewerRole) => void): () =>
     unsubscribePlayer = OBR.player.onChange((player) => onRole(player.role));
   };
 
-  let unsubscribeReady = () => {};
   if (OBR.isReady) {
     attach();
   } else {
-    unsubscribeReady = OBR.onReady(attach);
+    OBR.onReady(attach);
   }
 
   return () => {
-    unsubscribeReady();
     unsubscribePlayer();
   };
 }
