@@ -974,7 +974,7 @@ Wanderers-owlbear-Extension
 │   ├── background.tsx
 │   │   Long-lived room listener / relay
 │   │
-│   └── o wbear.ts
+│   └── owlbear.ts
 │       Existing Owlbear helpers
 │
 ├── public/
