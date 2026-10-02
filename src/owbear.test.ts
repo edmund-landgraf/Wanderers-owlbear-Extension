@@ -8,7 +8,9 @@ const state = vi.hoisted(() => ({
   role: "GM" as "GM" | "PLAYER",
   failRole: false,
   playerChange: null as null | ((player: { role: "GM" | "PLAYER" }) => void),
-  readyCallback: null as null | (() => void)
+  readyCallback: null as null | (() => void),
+  items: [] as any[],
+  itemChange: null as null | ((items: any[]) => void)
 }));
 
 vi.mock("@owlbear-rodeo/sdk", () => ({
@@ -34,11 +36,30 @@ vi.mock("@owlbear-rodeo/sdk", () => ({
           state.playerChange = null;
         };
       }
+    },
+    scene: {
+      items: {
+        async getItems() {
+          return state.items;
+        },
+        onChange(callback: (items: any[]) => void) {
+          state.itemChange = callback;
+          return () => {
+            state.itemChange = null;
+          };
+        }
+      }
     }
-  }
+  },
+  isImage: (item: any) => item?.type === "IMAGE"
 }));
 
-import { getViewerRole, subscribeToViewerRole } from "./owbear";
+import {
+  getSceneTokenVisuals,
+  getViewerRole,
+  subscribeToSceneTokenVisuals,
+  subscribeToViewerRole
+} from "./owbear";
 
 describe("Owlbear role handling", () => {
   beforeEach(() => {
@@ -48,6 +69,8 @@ describe("Owlbear role handling", () => {
     state.failRole = false;
     state.playerChange = null;
     state.readyCallback = null;
+    state.items = [];
+    state.itemChange = null;
     window.history.replaceState({}, "", "/");
   });
 
@@ -82,6 +105,74 @@ describe("Owlbear role handling", () => {
 
     unsubscribe();
     expect(state.playerChange).toBeNull();
+  });
+
+  it("reads GM-visible CHARACTER image names and image URLs", async () => {
+    state.available = true;
+    state.items = [
+      {
+        id: "ulysses-token",
+        type: "IMAGE",
+        layer: "CHARACTER",
+        name: "Ulysses",
+        image: { url: "https://example.test/ulysses.svg" }
+      },
+      {
+        id: "map",
+        type: "IMAGE",
+        layer: "MAP",
+        name: "Ulysses",
+        image: { url: "https://example.test/map.webp" }
+      },
+      {
+        id: "text",
+        type: "TEXT",
+        layer: "CHARACTER",
+        name: "Ulysses"
+      }
+    ];
+
+    await expect(getSceneTokenVisuals("GM")).resolves.toEqual([
+      {
+        id: "ulysses-token",
+        name: "Ulysses",
+        imageUrl: "https://example.test/ulysses.svg"
+      }
+    ]);
+  });
+
+  it("never reads scene token names for Player view", async () => {
+    state.available = true;
+    state.items = [{
+      id: "secret",
+      type: "IMAGE",
+      layer: "CHARACTER",
+      name: "Secret Creature",
+      image: { url: "secret.svg" }
+    }];
+
+    await expect(getSceneTokenVisuals("PLAYER")).resolves.toEqual([]);
+  });
+
+  it("subscribes to scene token visuals for GM only", () => {
+    state.available = true;
+    const updates: unknown[] = [];
+    const unsubscribe = subscribeToSceneTokenVisuals("GM", (tokens) => updates.push(tokens));
+
+    state.itemChange?.([{
+      id: "kota-token",
+      type: "IMAGE",
+      layer: "CHARACTER",
+      name: "Kota",
+      image: { url: "kota.svg" }
+    }]);
+
+    expect(updates).toEqual([[
+      { id: "kota-token", name: "Kota", imageUrl: "kota.svg" }
+    ]]);
+
+    unsubscribe();
+    expect(state.itemChange).toBeNull();
   });
 
   it("does not attach a late role listener after the consumer unsubscribes", () => {
