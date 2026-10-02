@@ -7,7 +7,8 @@ const state = vi.hoisted(() => ({
   ready: true,
   role: "GM" as "GM" | "PLAYER",
   failRole: false,
-  playerChange: null as null | ((player: { role: "GM" | "PLAYER" }) => void)
+  playerChange: null as null | ((player: { role: "GM" | "PLAYER" }) => void),
+  readyCallback: null as null | (() => void)
 }));
 
 vi.mock("@owlbear-rodeo/sdk", () => ({
@@ -19,8 +20,8 @@ vi.mock("@owlbear-rodeo/sdk", () => ({
       return state.ready;
     },
     onReady(callback: () => void) {
-      callback();
-      return () => {};
+      if (state.ready) callback();
+      else state.readyCallback = callback;
     },
     player: {
       async getRole() {
@@ -46,6 +47,7 @@ describe("Owlbear role handling", () => {
     state.role = "GM";
     state.failRole = false;
     state.playerChange = null;
+    state.readyCallback = null;
     window.history.replaceState({}, "", "/");
   });
 
@@ -79,6 +81,19 @@ describe("Owlbear role handling", () => {
     expect(roles).toEqual(["PLAYER", "GM"]);
 
     unsubscribe();
+    expect(state.playerChange).toBeNull();
+  });
+
+  it("does not attach a late role listener after the consumer unsubscribes", () => {
+    state.available = true;
+    state.ready = false;
+
+    const unsubscribe = subscribeToViewerRole(() => {});
+    expect(state.playerChange).toBeNull();
+
+    unsubscribe();
+    state.readyCallback?.();
+
     expect(state.playerChange).toBeNull();
   });
 });
