@@ -26,8 +26,10 @@ export async function getViewerRole(): Promise<ViewerRole> {
 export function subscribeToViewerRole(onRole: (role: ViewerRole) => void): () => void {
   if (!OBR.isAvailable) return () => {};
 
+  let active = true;
   let unsubscribePlayer = () => {};
   const attach = () => {
+    if (!active) return;
     unsubscribePlayer();
     unsubscribePlayer = OBR.player.onChange((player) => onRole(player.role));
   };
@@ -39,6 +41,7 @@ export function subscribeToViewerRole(onRole: (role: ViewerRole) => void): () =>
   }
 
   return () => {
+    active = false;
     unsubscribePlayer();
   };
 }
