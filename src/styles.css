@@ -189,10 +189,10 @@ h1 {
   text-transform: uppercase;
 }
 
-.picker-field select {
+.picker-field select,
+.picker-field input {
   width: 100%;
   height: 36px;
-  padding: 0 34px 0 10px;
   border: 1px solid #2b3940;
   border-radius: 4px;
   color: #e5ecef;
@@ -200,13 +200,50 @@ h1 {
   font-size: 11px;
 }
 
-.picker-field select:focus {
+.picker-field select {
+  padding: 0 34px 0 10px;
+}
+
+.picker-field input {
+  padding: 0 10px;
+}
+
+.picker-field select:focus,
+.picker-field input:focus {
   border-color: #9d7d48;
   outline: 1px solid #9d7d48;
 }
 
-.picker-field select:disabled {
+.picker-field select:disabled,
+.picker-field input:disabled {
   opacity: 0.55;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-submit {
+  height: 36px;
+  border: 1px solid #9d7d48;
+  border-radius: 4px;
+  color: #19130a;
+  background: #d3ae67;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.auth-submit:hover,
+.auth-submit:focus-visible {
+  background: #e0bd78;
+  outline: none;
+}
+
+.auth-submit:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .picker-status,
