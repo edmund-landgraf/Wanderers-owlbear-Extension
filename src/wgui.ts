@@ -4,7 +4,6 @@ import type { EncounterSnapshot, EncounterSourceState, ViewerRole } from "./type
 const encounterUrl = import.meta.env.VITE_WGUI_ENCOUNTER_URL?.trim();
 const campaignId = import.meta.env.VITE_WGUI_CAMPAIGN_ID?.trim();
 const fightId = import.meta.env.VITE_WGUI_FIGHT_ID?.trim();
-const bearer = import.meta.env.VITE_WGUI_BEARER_TOKEN?.trim();
 
 export function unwrapResponse(value: unknown): unknown {
   if (value && typeof value === "object" && "data" in value) {
@@ -46,8 +45,6 @@ async function fetchLive(role: ViewerRole, signal?: AbortSignal): Promise<Encoun
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
-  if (bearer) headers.Authorization = `Bearer ${bearer}`;
-
   const response = await fetch(encounterUrl, {
     method: "POST",
     headers,
