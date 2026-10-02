@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CombatantView, EncounterSourceState, ViewerRole } from "./types";
+import type {
+  CampaignOption,
+  CombatantView,
+  EncounterOption,
+  EncounterSourceState,
+  ViewerRole
+} from "./types";
 import {
   getSceneTokenVisuals,
   getViewerRole,
@@ -16,7 +22,12 @@ import {
   saveManualTokenColor,
   TOKEN_COLOR_PALETTE
 } from "./tokenPreferences";
-import { getPollInterval, loadEncounter } from "./wgui";
+import {
+  getPollInterval,
+  loadCampaignOptions,
+  loadEncounter,
+  loadEncounterOptions
+} from "./wgui";
 
 function signed(value?: number | null) {
   if (value === null || value === undefined) return "—";
@@ -43,20 +54,15 @@ function TokenAvatar({
   manualColor: string | null;
 }) {
   const initial = (combatant.initial || combatant.name.slice(0, 1) || "?").toUpperCase();
-
-  if (tokenVisual) {
-    return (
-      <div className="initial-token token-image-wrap" title={`Matched Owlbear token: ${tokenVisual.name}`}>
-        <img className="token-image" src={tokenVisual.imageUrl} alt="" />
-      </div>
-    );
-  }
+  const automaticColor = tokenVisual?.backgroundColor ?? null;
+  const background = automaticColor ?? manualColor ?? "#334155";
+  const mode = automaticColor ? "Matched token color" : manualColor ? "Manual token color" : "No token color";
 
   return (
     <div
-      className={`initial-token ${manualColor ? "manual-token-color" : "unmatched-token"}`}
-      style={{ background: manualColor ?? "#334155" }}
-      title={manualColor ? "Manual token color" : "No Owlbear token match"}
+      className={`initial-token ${automaticColor ? "matched-token-color" : manualColor ? "manual-token-color" : "unmatched-token"}`}
+      style={{ background }}
+      title={tokenVisual ? `${mode}: ${tokenVisual.name}` : mode}
       aria-hidden="true"
     >
       {initial}
@@ -75,22 +81,24 @@ function TokenColorEditor({
   manualColor: string | null;
   onColorChange: (color: string) => void;
 }) {
-  if (tokenVisual) {
+  if (tokenVisual?.backgroundColor) {
     return (
       <div className="token-match-status matched">
         <span className="match-dot" />
-        Matched Owlbear token by name
+        Owlbear name matched · React circle color read from token SVG
       </div>
     );
   }
+
+  const explanation = tokenVisual
+    ? `Matched ${combatant.name}, but its SVG background color could not be read. Pick the visible map color.`
+    : `No exact Owlbear token match for ${combatant.name}. Pick the visible map color.`;
 
   return (
     <div className="token-color-editor">
       <div className="token-color-copy">
         <span className="detail-label">Token color</span>
-        <span className="muted">
-          No exact Owlbear token match for {combatant.name}. Pick the matching map color.
-        </span>
+        <span className="muted">{explanation}</span>
       </div>
 
       <div className="token-color-palette" role="group" aria-label={`Token color for ${combatant.name}`}>
@@ -193,11 +201,12 @@ function CombatantRow({
 }) {
   const playerEnemy = role === "PLAYER" && combatant.side === "enemy";
   const conditions = combatant.conditions ?? [];
+  const automaticColor = tokenVisual?.backgroundColor ?? null;
 
   return (
     <article
       className={`combatant-row ${combatant.active ? "is-active" : ""}`}
-      data-token-match={tokenVisual ? "matched" : manualColor ? "manual" : "unmatched"}
+      data-token-match={automaticColor ? "matched" : manualColor ? "manual" : tokenVisual ? "matched-no-color" : "unmatched"}
     >
       <button className="combatant-main" type="button" onClick={onToggle} aria-expanded={open}>
         <div className="initiative">{combatant.initiative ?? "—"}</div>
@@ -246,14 +255,91 @@ function CombatantRow({
   );
 }
 
+function EncounterPicker({
+  campaigns,
+  encounters,
+  selectedCampaignId,
+  selectedEncounterId,
+  loading,
+  error,
+  onCampaignChange,
+  onEncounterChange
+}: {
+  campaigns: CampaignOption[];
+  encounters: EncounterOption[];
+  selectedCampaignId: string;
+  selectedEncounterId: string;
+  loading: boolean;
+  error: string | null;
+  onCampaignChange: (id: string) => void;
+  onEncounterChange: (id: string) => void;
+}) {
+  return (
+    <section className="encounter-picker">
+      <div className="picker-heading">
+        <span className="eyebrow">WGUI CONNECTION</span>
+        <strong>Select what this Owlbear room should display</strong>
+      </div>
+
+      <label className="picker-field">
+        <span>Campaign</span>
+        <select
+          aria-label="Campaign"
+          value={selectedCampaignId}
+          disabled={loading && campaigns.length === 0}
+          onChange={(event) => onCampaignChange(event.target.value)}
+        >
+          <option value="">Select campaign…</option>
+          {campaigns.map((campaign) => (
+            <option key={campaign.id} value={campaign.id}>
+              {campaign.name}{campaign.relation ? ` — ${campaign.relation === "owner" ? "Owned" : "Playing"}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {selectedCampaignId && (
+        <label className="picker-field">
+          <span>Encounter</span>
+          <select
+            aria-label="Encounter"
+            value={selectedEncounterId}
+            disabled={loading && encounters.length === 0}
+            onChange={(event) => onEncounterChange(event.target.value)}
+          >
+            <option value="">Select encounter…</option>
+            {encounters.map((encounter) => (
+              <option key={encounter.id} value={encounter.id}>
+                {encounter.name}{encounter.combatantCount != null ? ` — ${encounter.combatantCount} combatants` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {loading && <div className="picker-status">Loading WGUI…</div>}
+      {error && <div className="picker-error">{error}</div>}
+    </section>
+  );
+}
+
 export default function App() {
   const [role, setRole] = useState<ViewerRole | null>(null);
   const [state, setState] = useState<EncounterSourceState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [sceneTokens, setSceneTokens] = useState<OwlbearTokenVisual[]>([]);
   const [manualColorVersion, setManualColorVersion] = useState(0);
+
+  const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
+  const [encounters, setEncounters] = useState<EncounterOption[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [selectedEncounterId, setSelectedEncounterId] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
   const obrAvailable = isOwlbearAvailable();
 
   useEffect(() => {
@@ -276,13 +362,89 @@ export default function App() {
     if (!role) return;
 
     const controller = new AbortController();
+    let active = true;
+
+    setCampaigns([]);
+    setEncounters([]);
+    setSelectedCampaignId("");
+    setSelectedEncounterId("");
+    setPickerOpen(true);
+    setState(null);
+    setCatalogError(null);
+    setCatalogLoading(true);
+
+    loadCampaignOptions(role, controller.signal)
+      .then((options) => {
+        if (active) setCampaigns(options);
+      })
+      .catch((cause) => {
+        if (active && !controller.signal.aborted) {
+          setCatalogError(cause instanceof Error ? cause.message : "Unable to load WGUI campaigns.");
+        }
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [role]);
+
+  useEffect(() => {
+    if (!role || !selectedCampaignId) {
+      setEncounters([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    setEncounters([]);
+    setSelectedEncounterId("");
+    setState(null);
+    setCatalogError(null);
+    setCatalogLoading(true);
+
+    loadEncounterOptions(selectedCampaignId, role, controller.signal)
+      .then((options) => {
+        if (active) setEncounters(options);
+      })
+      .catch((cause) => {
+        if (active && !controller.signal.aborted) {
+          setCatalogError(cause instanceof Error ? cause.message : "Unable to load WGUI encounters.");
+        }
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [role, selectedCampaignId]);
+
+  useEffect(() => {
+    if (!role || !selectedCampaignId || !selectedEncounterId) {
+      setState(null);
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
     let mounted = true;
     let timer: number | undefined;
     const pollInterval = getPollInterval();
 
     const refresh = async () => {
       try {
-        const next = await loadEncounter(role, controller.signal);
+        const next = await loadEncounter(
+          role,
+          controller.signal,
+          { campaignId: selectedCampaignId, fightId: selectedEncounterId }
+        );
         if (!mounted) return;
         setState(next);
         setError(null);
@@ -297,7 +459,6 @@ export default function App() {
       }
     };
 
-    // A role change must never leave the previous role's projection on screen.
     setState(null);
     setError(null);
     setOpenId(null);
@@ -309,7 +470,7 @@ export default function App() {
       controller.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [role]);
+  }, [role, selectedCampaignId, selectedEncounterId]);
 
   useEffect(() => {
     if (!role || role !== "GM") {
@@ -347,10 +508,12 @@ export default function App() {
   );
 
   const encounter = state?.snapshot.encounter;
-  const campaignScope = encounter?.campaignName || "default-campaign";
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
+  const selectedEncounter = encounters.find((option) => option.id === selectedEncounterId);
+  const campaignScope = selectedCampaignId || encounter?.campaignName || "default-campaign";
+  const ready = Boolean(selectedCampaignId && selectedEncounterId);
 
   const manualColorFor = (combatant: CombatantView) => {
-    // manualColorVersion intentionally participates so a saved choice re-renders immediately.
     void manualColorVersion;
     return getManualTokenColor(campaignScope, combatant.name);
   };
@@ -373,19 +536,28 @@ export default function App() {
       <header className="app-header">
         <div>
           <div className="eyebrow">WANDERER'S GUIDE</div>
-          <h1>{encounter?.name ?? "Combat"}</h1>
+          <h1>{encounter?.name ?? selectedEncounter?.name ?? "Select encounter"}</h1>
           <p>
-            {encounter?.campaignName ?? "Encounter"}
+            {encounter?.campaignName ?? selectedCampaign?.name ?? "Choose a WGUI campaign"}
             {encounter?.location ? <><span className="dot">•</span>{encounter.location}</> : null}
           </p>
         </div>
 
         <div className="header-side">
-          <span className={`role-badge ${role === "GM" ? "gm" : "player"}`}>{role === "GM" ? "GM VIEW" : "PLAYER VIEW"}</span>
-          <div className="round">
-            <span>ROUND</span>
-            <strong>{encounter?.round ?? "—"}</strong>
-          </div>
+          {ready && !pickerOpen && (
+            <button className="change-selection" type="button" onClick={() => setPickerOpen(true)}>
+              Change
+            </button>
+          )}
+          <span className={`role-badge ${role === "GM" ? "gm" : "player"}`}>
+            {role === "GM" ? "GM VIEW" : "PLAYER VIEW"}
+          </span>
+          {ready && (
+            <div className="round">
+              <span>ROUND</span>
+              <strong>{encounter?.round ?? "—"}</strong>
+            </div>
+          )}
         </div>
       </header>
 
@@ -397,53 +569,78 @@ export default function App() {
         </div>
       )}
 
-      <nav className="tabs" aria-label="Encounter sections">
-        <button className="tab active">COMBAT</button>
-      </nav>
+      {pickerOpen && (
+        <EncounterPicker
+          campaigns={campaigns}
+          encounters={encounters}
+          selectedCampaignId={selectedCampaignId}
+          selectedEncounterId={selectedEncounterId}
+          loading={catalogLoading}
+          error={catalogError}
+          onCampaignChange={(id) => {
+            setSelectedCampaignId(id);
+            setSelectedEncounterId("");
+            setPickerOpen(true);
+          }}
+          onEncounterChange={(id) => {
+            setSelectedEncounterId(id);
+            if (id) setPickerOpen(false);
+          }}
+        />
+      )}
 
-      <section className="table-head" aria-hidden="true">
-        <span>INIT</span>
-        <span></span>
-        <span>COMBATANT</span>
-        <span>CONDITIONS</span>
-        <span>AC</span>
-        <span>HP</span>
-        <span></span>
-      </section>
+      {ready && (
+        <>
+          <nav className="tabs" aria-label="Encounter sections">
+            <button className="tab active">COMBAT</button>
+          </nav>
 
-      <section className="combat-list" aria-live="polite">
-        {loading && !state && <div className="empty-state">Loading encounter…</div>}
+          <section className="table-head" aria-hidden="true">
+            <span>INIT</span>
+            <span></span>
+            <span>COMBATANT</span>
+            <span>CONDITIONS</span>
+            <span>AC</span>
+            <span>HP</span>
+            <span></span>
+          </section>
 
-        {!loading && combatants.length === 0 && !error && (
-          <div className="empty-state">No combatants in this encounter.</div>
-        )}
+          <section className="combat-list" aria-live="polite">
+            {loading && !state && <div className="empty-state">Loading encounter…</div>}
 
-        {combatants.map((combatant) => {
-          const tokenVisual = tokenMatches.get(combatant.id);
-          const manualColor = tokenVisual ? null : manualColorFor(combatant);
+            {!loading && combatants.length === 0 && !error && (
+              <div className="empty-state">No combatants in this encounter.</div>
+            )}
 
-          return (
-            <CombatantRow
-              key={combatant.id}
-              combatant={combatant}
-              role={role}
-              open={openId === combatant.id}
-              onToggle={() => setOpenId((current) => current === combatant.id ? null : combatant.id)}
-              tokenVisual={tokenVisual}
-              manualColor={manualColor}
-              onColorChange={(color) => saveColor(combatant, color)}
-            />
-          );
-        })}
-      </section>
+            {combatants.map((combatant) => {
+              const tokenVisual = tokenMatches.get(combatant.id);
+              const automaticColor = tokenVisual?.backgroundColor ?? null;
+              const manualColor = automaticColor ? null : manualColorFor(combatant);
 
-      <footer className="status-bar">
-        <div>
-          <span className={`status-dot ${error ? "error" : ""}`} />
-          {error ? "Feed unavailable" : state?.source === "live" ? "WGUI live" : "Sample encounter"}
-        </div>
-        <span>{state ? `Updated ${state.lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>
-      </footer>
+              return (
+                <CombatantRow
+                  key={combatant.id}
+                  combatant={combatant}
+                  role={role}
+                  open={openId === combatant.id}
+                  onToggle={() => setOpenId((current) => current === combatant.id ? null : combatant.id)}
+                  tokenVisual={tokenVisual}
+                  manualColor={manualColor}
+                  onColorChange={(color) => saveColor(combatant, color)}
+                />
+              );
+            })}
+          </section>
+
+          <footer className="status-bar">
+            <div>
+              <span className={`status-dot ${error ? "error" : ""}`} />
+              {error ? "Feed unavailable" : state?.source === "live" ? "WGUI live" : "Sample encounter"}
+            </div>
+            <span>{state ? `Updated ${state.lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+          </footer>
+        </>
+      )}
 
       {error && (
         <div className="error-banner">
