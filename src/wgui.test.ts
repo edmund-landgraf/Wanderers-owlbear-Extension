@@ -34,6 +34,9 @@ describe("WGUI feed parsing", () => {
     { encounter: null, combatants: [] },
     { encounter: { id: 40, name: "wrong id type" }, combatants: [] },
     { encounter: { id: "40", name: "missing combatants" } },
+    { encounter: { id: "40", name: "bad row" }, combatants: [{}] },
+    { encounter: { id: "40", name: "bad side" }, combatants: [{ id: "x", name: "X", side: "secret" }] },
+    { encounter: { id: "40", name: "bad name" }, combatants: [{ id: "x", name: 7, side: "enemy" }] },
     { data: { status: "success" } }
   ])("rejects malformed payload %#", (payload) => {
     expect(() => parseEncounterResponse(payload)).toThrow(
