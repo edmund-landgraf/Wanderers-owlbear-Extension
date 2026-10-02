@@ -36,7 +36,7 @@ export function getSampleEncounter(role: ViewerRole): EncounterSnapshot {
           ? "Down"
           : ratio < 0.25
             ? "Badly injured"
-            : ratio < 0.6
+            : ratio < 0.75
               ? "Injured"
               : "Healthy";
 
