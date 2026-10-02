@@ -7,11 +7,8 @@ function queryRole(): ViewerRole | null {
 }
 
 export async function getViewerRole(): Promise<ViewerRole> {
-  const forced = queryRole();
-  if (forced) return forced;
-
   if (!OBR.isAvailable) {
-    return "GM";
+    return queryRole() ?? "GM";
   }
 
   return new Promise((resolve) => {
@@ -19,10 +16,33 @@ export async function getViewerRole(): Promise<ViewerRole> {
       try {
         resolve(await OBR.player.getRole());
       } catch {
-        resolve("GM");
+        // Fail closed if the embedded SDK cannot establish the user's role.
+        resolve("PLAYER");
       }
     });
   });
+}
+
+export function subscribeToViewerRole(onRole: (role: ViewerRole) => void): () => void {
+  if (!OBR.isAvailable) return () => {};
+
+  let unsubscribePlayer = () => {};
+  const attach = () => {
+    unsubscribePlayer();
+    unsubscribePlayer = OBR.player.onChange((player) => onRole(player.role));
+  };
+
+  let unsubscribeReady = () => {};
+  if (OBR.isReady) {
+    attach();
+  } else {
+    unsubscribeReady = OBR.onReady(attach);
+  }
+
+  return () => {
+    unsubscribeReady();
+    unsubscribePlayer();
+  };
 }
 
 export function isOwlbearAvailable(): boolean {
