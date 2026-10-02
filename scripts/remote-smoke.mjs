@@ -107,6 +107,8 @@ try {
   const queue = [...assetRefs].filter((url) => url.endsWith(".js"));
   const seen = new Set();
   let discovered = 0;
+  let supabaseUrl = null;
+  let anonKey = null;
 
   while (queue.length && seen.size < 80) {
     const assetUrl = queue.shift();
@@ -119,6 +121,15 @@ try {
     const source = await assetResponse.text();
     console.log(`WGUI JS: ${source.length} bytes - ${assetUrl}`);
 
+    if (!supabaseUrl) {
+      const urlMatch = source.match(/https:\/\/[a-z0-9-]+\.supabase\.co/i);
+      if (urlMatch) supabaseUrl = urlMatch[0];
+    }
+    if (!anonKey) {
+      const keyMatch = source.match(/eyJ[A-Za-z0-9_-]{80,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+      if (keyMatch) anonKey = keyMatch[0];
+    }
+
     for (const snippet of interestingSnippets(source)) {
       console.log("WGUI DISCOVERY:", snippet.replace(/\s+/g, " "));
       discovered += 1;
@@ -130,6 +141,24 @@ try {
   }
 
   console.log(`WGUI discovery checked ${seen.size} JS modules and found ${discovered} interesting snippets`);
+
+  if (supabaseUrl && anonKey) {
+    const functionUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/wgui-ext-find-encounter`;
+    const probe = await fetch(functionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`
+      },
+      body: JSON.stringify({ campaign_id: 23 }),
+      signal: controller.signal
+    });
+    const body = await probe.text();
+    console.log(`WGUI ANON ENCOUNTER PROBE: ${probe.status} ${body.slice(0, 1500).replace(/\s+/g, " ")}`);
+  } else {
+    console.log("WGUI ANON ENCOUNTER PROBE: skipped; public client config not discovered");
+  }
 } finally {
   clearTimeout(timer);
 }
