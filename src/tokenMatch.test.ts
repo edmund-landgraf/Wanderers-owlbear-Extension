@@ -12,20 +12,20 @@ describe("token matching", () => {
       { id: "h", name: "Hadrosaurid", side: "enemy" as const }
     ];
     const tokens = [
-      { id: "t1", name: " ulysses ", imageUrl: "ulysses.svg" },
-      { id: "t2", name: "HADROSAURID", imageUrl: "hadrosaurid.svg" }
+      { id: "t1", name: " ulysses ", backgroundColor: "#6d28d9" },
+      { id: "t2", name: "HADROSAURID", backgroundColor: "#e8a832" }
     ];
 
     const matches = matchCombatantsToTokens(combatants, tokens);
-    expect(matches.get("u")?.id).toBe("t1");
-    expect(matches.get("h")?.id).toBe("t2");
+    expect(matches.get("u")).toMatchObject({ id: "t1", backgroundColor: "#6d28d9" });
+    expect(matches.get("h")).toMatchObject({ id: "t2", backgroundColor: "#e8a832" });
   });
 
   it("refuses ambiguous duplicate-name matches", () => {
     const combatants = [{ id: "g", name: "Guard", side: "enemy" as const }];
     const tokens = [
-      { id: "t1", name: "Guard", imageUrl: "one.svg" },
-      { id: "t2", name: "Guard", imageUrl: "two.svg" }
+      { id: "t1", name: "Guard", backgroundColor: "#ef3340" },
+      { id: "t2", name: "Guard", backgroundColor: "#f5ba27" }
     ];
 
     expect(matchCombatantsToTokens(combatants, tokens).has("g")).toBe(false);
