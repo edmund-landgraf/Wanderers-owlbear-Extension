@@ -132,7 +132,7 @@ function CombatantRow({
 }
 
 export default function App() {
-  const [role, setRole] = useState<ViewerRole>("GM");
+  const [role, setRole] = useState<ViewerRole | null>(null);
   const [state, setState] = useState<EncounterSourceState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -148,6 +148,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!role) return;
+
     const controller = new AbortController();
     let mounted = true;
 
@@ -182,6 +184,14 @@ export default function App() {
   );
 
   const encounter = state?.snapshot.encounter;
+
+  if (!role) {
+    return (
+      <main className="app-shell role-loading" aria-live="polite">
+        <div className="empty-state">Connecting to Owlbear…</div>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
