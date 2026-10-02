@@ -20,8 +20,7 @@ See [docs/OBR-WGUI-Integration.md](docs/OBR-WGUI-Integration.md) for the archite
 - Campaign → encounter selection flow that collapses after selection
 - GM-only Owlbear token-name matching with React circle color extraction
 - Manual token-color palette fallback when no usable match/color is available
-- Sample campaign/encounter fallback
-- Configurable live WGUI catalog/encounter endpoints with polling
+- Live WGUI catalog and encounter polling
 
 No dice, combat editing, HP writes, conditions writes, or Owlbear scene mutation are included in V1. Token matching is read-only.
 
@@ -53,11 +52,9 @@ http://localhost:5201/manifest.json
 
 ## WGUI connection
 
-Copy `.env.example` to `.env.local` and copy the same public `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` values used by WGUI. The Owlbear extension then signs into the same Supabase auth service and stores its own browser session on the extension origin.
+The extension calls the six WGUI functions on the same stack as [wgui.wandersguide.site](https://wgui.wandersguide.site): `wgui-ext-ensure-public-user`, `wgui-ext-join-campaign`, `wgui-ext-find-encounter`, `wgui-ext-find-campaign-characters`, `wgui-ext-patch-encounter-dice`, and `wgui-export-character`. Combat reads encounters and the campaign roster from the first two `find` functions. Sign-in uses that stack's Supabase auth.
 
 With those values configured, campaign discovery uses the real WGUI/WG functions and the encounter dropdown calls `wgui-ext-find-encounter` for the selected campaign. GM view receives the campaigns owned by that WGUI account; Player view receives campaigns that account has joined through one of its characters.
-
-If the Supabase values are absent, the extension stays in sample mode for local UI development.
 
 The extension posts:
 
@@ -80,8 +77,6 @@ or:
 ```
 
 The expected response is either the encounter snapshot directly or a JSend-style `{ "data": ... }` wrapper.
-
-When no endpoint is configured, sample encounter data is used for UI development.
 
 ## Production build
 

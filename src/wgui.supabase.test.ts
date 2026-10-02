@@ -57,6 +57,7 @@ describe("authenticated WGUI catalog", () => {
           combatants: {
             list: Array.from({ length: 13 }, (_, index) => ({
               _id: `darkwood-${index + 1}`,
+              out: index === 0 ? "dead" : undefined,
               type: "CREATURE",
               ally: false,
               initiative: 20 - index,
@@ -151,6 +152,7 @@ describe("authenticated WGUI catalog", () => {
     expect(result.snapshot.combatants).toHaveLength(13);
     expect(result.snapshot.combatants[0]).toMatchObject({
       id: "darkwood-1",
+      out: "dead",
       name: "Darkwood Creature 1",
       side: "enemy",
       initiative: 20,
@@ -171,6 +173,27 @@ describe("authenticated WGUI catalog", () => {
       { campaign_id: 23 },
       "test-access-token"
     );
+  });
+
+  it("returns the same encounter payload wgui-ext-find-encounter sends to a player", async () => {
+    const result = await loadEncounter(
+      "PLAYER",
+      undefined,
+      { campaignId: "23", fightId: "41" },
+      session,
+      "The Price of Prophecy (Production)"
+    );
+
+    expect(result.snapshot.combatants[0]).toMatchObject({
+      id: "darkwood-1",
+      out: "dead",
+      name: "Darkwood Creature 1",
+      side: "enemy",
+      initiative: 20,
+      level: 2,
+      ac: 17,
+      hp: { current: 18, max: 24, temp: 0 }
+    });
   });
 
   it("requires a WGUI session when the real backend is configured", async () => {

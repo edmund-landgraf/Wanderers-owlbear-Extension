@@ -598,6 +598,9 @@ export default function App() {
     [state]
   );
 
+  const activeCombatants = combatants.filter((combatant) => combatant.out !== "dead" && combatant.out !== "incapacitated");
+  const outCombatants = combatants.filter((combatant) => combatant.out === "dead" || combatant.out === "incapacitated");
+
   const tokenMatches = useMemo(
     () => matchCombatantsToTokens(combatants, sceneTokens),
     [combatants, sceneTokens]
@@ -734,11 +737,11 @@ export default function App() {
           <section className="combat-list" aria-live="polite">
             {loading && !state && <div className="empty-state">Loading encounter…</div>}
 
-            {!loading && combatants.length === 0 && !error && (
+            {!loading && activeCombatants.length === 0 && !error && (
               <div className="empty-state">No combatants in this encounter.</div>
             )}
 
-            {combatants.map((combatant) => {
+            {activeCombatants.map((combatant) => {
               const tokenVisual = tokenMatches.get(combatant.id);
               const automaticColor = tokenVisual?.backgroundColor ?? null;
               const manualColor = automaticColor ? null : manualColorFor(combatant);
@@ -758,10 +761,31 @@ export default function App() {
             })}
           </section>
 
+          {state && (
+            <section className="out-bucket" aria-label="Dead or incapacitated">
+              <div className="out-bucket-label">
+                <span>Dead / Incapacitated</span>
+                <span>{outCombatants.length}</span>
+              </div>
+              {outCombatants.length === 0 ? (
+                <p className="out-empty">No combatants out of the fight.</p>
+              ) : (
+                <ul>
+                  {outCombatants.map((combatant) => (
+                    <li key={combatant.id}>
+                      <span className="out-name">{combatant.name}</span>
+                      <span className="out-tag">{combatant.out === "dead" ? "Dead" : "Incap."}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
           <footer className="status-bar">
             <div>
               <span className={`status-dot ${error ? "error" : ""}`} />
-              {error ? "Feed unavailable" : state?.source === "live" ? "WGUI live" : "Sample encounter"}
+              {error ? "Feed unavailable" : "WGUI live"}
             </div>
             <span>{state ? `Updated ${state.lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>
           </footer>

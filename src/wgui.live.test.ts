@@ -7,6 +7,8 @@ afterEach(() => {
 });
 
 async function importLiveModule() {
+  vi.stubEnv("VITE_SUPABASE_URL", "");
+  vi.stubEnv("VITE_SUPABASE_KEY", "");
   vi.stubEnv("VITE_WGUI_ENCOUNTER_URL", "https://example.test/encounter");
   vi.stubEnv("VITE_WGUI_CAMPAIGNS_URL", "https://example.test/campaigns");
   vi.stubEnv("VITE_WGUI_ENCOUNTERS_URL", "https://example.test/encounters");
@@ -104,7 +106,9 @@ describe("live WGUI feed", () => {
     );
   });
 
-  it("uses sample catalog and encounter when live endpoints are not configured", async () => {
+  it("refuses to invent campaigns or encounters when Wanderer's Guide is not configured", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_KEY", "");
     vi.stubEnv("VITE_WGUI_ENCOUNTER_URL", "");
     vi.stubEnv("VITE_WGUI_CAMPAIGNS_URL", "");
     vi.stubEnv("VITE_WGUI_ENCOUNTERS_URL", "");
@@ -116,27 +120,16 @@ describe("live WGUI feed", () => {
       loadEncounter
     } = await import("./wgui");
 
-    await expect(loadCampaignOptions("PLAYER")).resolves.toEqual([
-      {
-        id: "23",
-        name: "The Price of Prophecy (Production)",
-        relation: "player"
-      }
-    ]);
-
-    await expect(loadEncounterOptions("23", "PLAYER")).resolves.toEqual([
-      { id: "40", name: "wg combat test", combatantCount: 8 },
-      { id: "sample-getting-darkwood", name: "Getting the Darkwood", combatantCount: 13 },
-      { id: "sample-test-2", name: "test 2", combatantCount: 7 }
-    ]);
-
-    const result = await loadEncounter(
+    await expect(loadCampaignOptions("PLAYER")).rejects.toThrow(
+      "Wanderer's Guide is not configured."
+    );
+    await expect(loadEncounterOptions("23", "PLAYER")).rejects.toThrow(
+      "Wanderer's Guide is not configured."
+    );
+    await expect(loadEncounter(
       "PLAYER",
       undefined,
       { campaignId: "23", fightId: "40" }
-    );
-
-    expect(result.source).toBe("sample");
-    expect(result.snapshot.combatants.length).toBeGreaterThan(0);
+    )).rejects.toThrow("Wanderer's Guide is not configured.");
   });
 });

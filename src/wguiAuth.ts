@@ -1,7 +1,10 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
-const supabaseKey = import.meta.env.VITE_SUPABASE_KEY?.trim();
+const wguiStackUrl = "https://amba.wandersguide.site";
+const wguiStackAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg2NDkyNTU1LCJleHAiOjIxMDE4NTI1NTV9.bhMpateR8zqIG6T5uW_zA5W3GVPh4Lj1I0jHTqafaEo";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || wguiStackUrl;
+const supabaseKey = import.meta.env.VITE_SUPABASE_KEY?.trim() || wguiStackAnonKey;
 
 export type WguiSession = {
   accessToken: string;
@@ -10,6 +13,9 @@ export type WguiSession = {
 };
 
 export function isWguiBackendConfigured(): boolean {
+  if (import.meta.env.VITE_SUPABASE_URL === "" || import.meta.env.VITE_SUPABASE_KEY === "") {
+    return false;
+  }
   return Boolean(supabaseUrl && supabaseKey);
 }
 

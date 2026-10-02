@@ -42,6 +42,7 @@ export type CombatantView = {
   } | null;
   conditions?: string[];
   active?: boolean;
+  out?: "dead" | "incapacitated" | null;
 };
 
 export type EncounterSnapshot = {
@@ -58,6 +59,6 @@ export type EncounterSnapshot = {
 
 export type EncounterSourceState = {
   snapshot: EncounterSnapshot;
-  source: "sample" | "live";
+  source: "live";
   lastUpdated: Date;
 };

@@ -300,6 +300,61 @@ h1 {
   padding: 0 10px 12px;
 }
 
+.out-bucket {
+  margin: 4px 10px 12px;
+  border-top: 1px solid #202c32;
+  padding-top: 10px;
+}
+
+.out-bucket-label {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px 8px;
+  color: #718087;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.out-bucket ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.out-bucket li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 4px;
+  color: #8b9aa1;
+  font-size: 13px;
+}
+
+.out-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.out-tag {
+  margin-left: auto;
+  color: #52646d;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.out-empty {
+  margin: 0;
+  padding: 4px;
+  color: #52646d;
+  font-size: 12px;
+}
+
 .combatant-row {
   margin-bottom: 4px;
   border: 1px solid #202c32;

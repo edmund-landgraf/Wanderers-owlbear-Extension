@@ -43,4 +43,5 @@ describe("WGUI feed parsing", () => {
       "WGUI encounter endpoint returned an unexpected shape."
     );
   });
+
 });

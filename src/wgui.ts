@@ -1,4 +1,3 @@
-import { getSampleEncounter } from "./sampleEncounter";
 import {
   invokeWguiFunction,
   isWguiBackendConfigured,
@@ -57,6 +56,7 @@ type RawCombatant = {
   creature?: RawEntity | null;
   data?: RawEntity | null;
   active?: boolean;
+  out?: "dead" | "incapacitated" | null;
 };
 
 type RawEncounter = {
@@ -231,7 +231,8 @@ function entityToCombatantView(
       will: numericStat(profs?.SAVE_WILL?.total)
     },
     conditions: conditionLabels(entity),
-    active: combatant.active === true
+    active: combatant.active === true,
+    out: combatant.out === "dead" || combatant.out === "incapacitated" ? combatant.out : null
   };
 }
 
@@ -392,11 +393,7 @@ export async function loadCampaignOptions(
   }
 
   if (!campaignsUrl) {
-    return [{
-      id: "23",
-      name: "The Price of Prophecy (Production)",
-      relation: role === "GM" ? "owner" : "player"
-    }];
+    throw new Error("Wanderer's Guide is not configured.");
   }
 
   const campaigns = parseCampaigns(
@@ -439,11 +436,7 @@ export async function loadEncounterOptions(
   }
 
   if (!encountersUrl) {
-    return [
-      { id: "40", name: "wg combat test", combatantCount: 8 },
-      { id: "sample-getting-darkwood", name: "Getting the Darkwood", combatantCount: 13 },
-      { id: "sample-test-2", name: "test 2", combatantCount: 7 }
-    ];
+    throw new Error("Wanderer's Guide is not configured.");
   }
 
   const url = encountersUrl.includes("{campaignId}")
@@ -503,10 +496,47 @@ async function fetchLive(
   return parseEncounterResponse(await response.json());
 }
 
+function projectEncounterForRole(
+  role: ViewerRole,
+  snapshot: EncounterSnapshot
+): EncounterSnapshot {
+  if (role === "GM") return snapshot;
+
+  return {
+    ...snapshot,
+    combatants: snapshot.combatants.map((combatant) => {
+      if (combatant.side !== "enemy") return combatant;
+      const current = combatant.hp?.current ?? null;
+      const max = combatant.hp?.max ?? null;
+      const ratio = current !== null && max ? current / max : null;
+      const state = ratio === null
+        ? null
+        : ratio <= 0
+          ? "Down"
+          : ratio < 0.25
+            ? "Badly injured"
+            : ratio < 0.75
+              ? "Injured"
+              : "Healthy";
+
+      return {
+        id: combatant.id,
+        name: combatant.name,
+        initial: combatant.initial,
+        side: combatant.side,
+        initiative: combatant.initiative,
+        hp: { state },
+        conditions: combatant.conditions,
+        active: combatant.active
+      };
+    })
+  };
+}
+
 export async function loadEncounter(
   role: ViewerRole,
-  signal?: AbortSignal,
-  selection: EncounterSelection = { campaignId: "23", fightId: "40" },
+  signal: AbortSignal | undefined,
+  selection: EncounterSelection,
   session?: WguiSession | null,
   campaignName?: string | null
 ): Promise<EncounterSourceState> {
@@ -548,16 +578,12 @@ export async function loadEncounter(
   }
 
   if (!encounterUrl) {
-    return {
-      snapshot: getSampleEncounter(role, selection.fightId),
-      source: "sample",
-      lastUpdated: new Date()
-    };
+    throw new Error("Wanderer's Guide is not configured.");
   }
 
   const snapshot = await fetchLive(role, selection, signal);
   return {
-    snapshot,
+    snapshot: projectEncounterForRole(role, snapshot),
     source: "live",
     lastUpdated: new Date()
   };
