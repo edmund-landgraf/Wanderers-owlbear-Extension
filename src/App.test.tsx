@@ -75,23 +75,65 @@ describe("role-gated encounter loading", () => {
     expect(screen.getByText("GM VIEW")).toBeTruthy();
   });
 
-  it("immediately switches projections if Owlbear changes the user's role", async () => {
+  it("clears GM data immediately before loading a downgraded Player projection", async () => {
+    let resolvePlayer: ((value: unknown) => void) | null = null;
+    const playerResponse = new Promise((resolve) => {
+      resolvePlayer = resolve;
+    });
+
+    mocks.loadEncounter
+      .mockResolvedValueOnce({
+        source: "live",
+        lastUpdated: new Date("2026-10-02T18:00:00Z"),
+        snapshot: {
+          encounter: { id: "40", name: "Test Encounter", round: 1 },
+          combatants: [{
+            id: "enemy",
+            name: "Hadrosaurid",
+            side: "enemy",
+            initiative: 16,
+            ac: 18,
+            hp: { current: 40, max: 59 },
+            conditions: []
+          }]
+        }
+      })
+      .mockReturnValueOnce(playerResponse);
+
     render(<App />);
 
     await act(async () => {
       mocks.roleResolver?.("GM");
     });
-    await waitFor(() => expect(screen.getByText("GM VIEW")).toBeTruthy());
-
-    mocks.loadEncounter.mockClear();
+    await waitFor(() => expect(screen.getByText("40 / 59")).toBeTruthy());
 
     await act(async () => {
       mocks.roleChange?.("PLAYER");
     });
 
-    await waitFor(() => {
-      expect(mocks.loadEncounter).toHaveBeenCalledWith("PLAYER", expect.any(AbortSignal));
+    expect(screen.queryByText("40 / 59")).toBeNull();
+    expect(screen.getByText("Loading encounter…")).toBeTruthy();
+
+    await act(async () => {
+      resolvePlayer?.({
+        source: "live",
+        lastUpdated: new Date("2026-10-02T18:00:01Z"),
+        snapshot: {
+          encounter: { id: "40", name: "Test Encounter", round: 1 },
+          combatants: [{
+            id: "enemy",
+            name: "Hadrosaurid",
+            side: "enemy",
+            initiative: 16,
+            hp: { state: "Injured" },
+            conditions: []
+          }]
+        }
+      });
     });
+
+    await waitFor(() => expect(screen.getByText("Injured")).toBeTruthy());
     expect(screen.getByText("PLAYER VIEW")).toBeTruthy();
+    expect(screen.queryByText("40 / 59")).toBeNull();
   });
 });
