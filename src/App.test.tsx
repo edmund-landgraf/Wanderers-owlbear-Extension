@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   roleChange: null as null | ((role: "GM" | "PLAYER") => void),
   loadCampaignOptions: vi.fn(),
   loadEncounterOptions: vi.fn(),
-  loadEncounter: vi.fn()
+  loadEncounter: vi.fn(),
+  getSceneTokenVisuals: vi.fn()
 }));
 
 vi.mock("./owbear", () => ({
@@ -22,8 +23,7 @@ vi.mock("./owbear", () => ({
       mocks.roleChange = null;
     };
   },
-  getSceneTokenVisuals: async () => [],
-  subscribeToSceneTokenVisuals: () => () => {}
+  getSceneTokenVisuals: mocks.getSceneTokenVisuals
 }));
 
 vi.mock("./wgui", () => ({
@@ -70,6 +70,7 @@ describe("role-gated encounter loading and selection", () => {
     mocks.loadCampaignOptions.mockReset();
     mocks.loadEncounterOptions.mockReset();
     mocks.loadEncounter.mockReset();
+    mocks.getSceneTokenVisuals.mockReset();
 
     mocks.loadCampaignOptions.mockResolvedValue([
       { id: "23", name: "The Price of Prophecy (Production)", relation: "owner" }
@@ -78,6 +79,7 @@ describe("role-gated encounter loading and selection", () => {
       { id: "40", name: "wg combat test", combatantCount: 8 }
     ]);
     mocks.loadEncounter.mockResolvedValue(emptyResponse);
+    mocks.getSceneTokenVisuals.mockResolvedValue([]);
   });
 
   it("shows campaign first, then encounter, and does not load combat until both are chosen", async () => {
@@ -110,6 +112,60 @@ describe("role-gated encounter loading and selection", () => {
 
     expect(screen.queryByLabelText("Campaign")).toBeNull();
     expect(screen.getByRole("button", { name: "Change" })).toBeTruthy();
+  });
+
+  it("matches Owlbear accessibility names and applies sampled SVG colors on request", async () => {
+    mocks.loadEncounter.mockResolvedValueOnce({
+      source: "live",
+      lastUpdated: new Date("2026-10-02T18:00:00Z"),
+      snapshot: {
+        encounter: {
+          id: "40",
+          name: "wg combat test",
+          campaignName: "The Price of Prophecy (Production)",
+          round: 1
+        },
+        combatants: [
+          {
+            id: "kota",
+            name: "Kota",
+            side: "ally",
+            initiative: 18,
+            ac: 19,
+            hp: { current: 24, max: 24 },
+            conditions: []
+          },
+          {
+            id: "hadrosaurid",
+            name: "Hadrosaurid",
+            side: "enemy",
+            initiative: 16,
+            ac: 18,
+            hp: { current: 40, max: 59 },
+            conditions: []
+          }
+        ]
+      }
+    });
+    mocks.getSceneTokenVisuals.mockResolvedValue([
+      { id: "kota-token", name: "Kota", backgroundColor: "#2fb8d0" },
+      { id: "hadro-token", name: "Hadrosaurid", backgroundColor: "#e8a832" }
+    ]);
+
+    render(<App />);
+    await resolveRole("GM");
+    await selectCampaignAndEncounter();
+    await waitFor(() => expect(screen.getByText("Kota")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Match token colors" }));
+
+    await waitFor(() => {
+      expect(mocks.getSceneTokenVisuals).toHaveBeenCalledWith("GM");
+      expect(screen.getByTitle("Matched token color: Kota")).toBeTruthy();
+      expect(screen.getByTitle("Matched token color: Hadrosaurid")).toBeTruthy();
+    });
+
+    expect(screen.getByText(/Matched 2 of 2 combatants from 2 Owlbear tokens/)).toBeTruthy();
   });
 
   it("passes Player role through the campaign and encounter catalog", async () => {

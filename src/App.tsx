@@ -10,12 +10,12 @@ import {
   getSceneTokenVisuals,
   getViewerRole,
   isOwlbearAvailable,
-  subscribeToSceneTokenVisuals,
   subscribeToViewerRole
 } from "./owbear";
 import {
-  matchCombatantsToTokens,
-  type OwlbearTokenVisual
+  buildTokenColorMatches,
+  type OwlbearTokenVisual,
+  type TokenColorMatch
 } from "./tokenMatch";
 import {
   getManualTokenColor,
@@ -385,7 +385,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sceneTokens, setSceneTokens] = useState<OwlbearTokenVisual[]>([]);
+  const [tokenColorMatches, setTokenColorMatches] = useState<TokenColorMatch[]>([]);
+  const [matchingTokenColors, setMatchingTokenColors] = useState(false);
+  const [tokenMatchMessage, setTokenMatchMessage] = useState<string | null>(null);
   const [manualColorVersion, setManualColorVersion] = useState(0);
 
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
@@ -568,31 +570,6 @@ export default function App() {
     };
   }, [role, selectedCampaignId, selectedEncounterId, wguiSession, selectedCampaign?.name]);
 
-  useEffect(() => {
-    if (!role || role !== "GM") {
-      setSceneTokens([]);
-      return;
-    }
-
-    let active = true;
-    getSceneTokenVisuals(role)
-      .then((tokens) => {
-        if (active) setSceneTokens(tokens);
-      })
-      .catch(() => {
-        if (active) setSceneTokens([]);
-      });
-
-    const unsubscribe = subscribeToSceneTokenVisuals(role, (tokens) => {
-      if (active) setSceneTokens(tokens);
-    });
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [role]);
-
   const combatants = useMemo(
     () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
     [state]
@@ -601,14 +578,26 @@ export default function App() {
   const activeCombatants = combatants.filter((combatant) => combatant.out !== "dead" && combatant.out !== "incapacitated");
   const outCombatants = combatants.filter((combatant) => combatant.out === "dead" || combatant.out === "incapacitated");
 
-  const tokenMatches = useMemo(
-    () => matchCombatantsToTokens(combatants, sceneTokens),
-    [combatants, sceneTokens]
-  );
+  const tokenMatches = useMemo(() => {
+    const byCombatant = new Map<string, OwlbearTokenVisual>();
+    for (const match of tokenColorMatches) {
+      byCombatant.set(match.combatantId, {
+        id: match.tokenId,
+        name: match.tokenName,
+        backgroundColor: match.backgroundColor
+      });
+    }
+    return byCombatant;
+  }, [tokenColorMatches]);
 
   const encounter = state?.snapshot.encounter;
   const campaignScope = selectedCampaignId || encounter?.campaignName || "default-campaign";
   const ready = Boolean(selectedCampaignId && selectedEncounterId);
+
+  useEffect(() => {
+    setTokenColorMatches([]);
+    setTokenMatchMessage(null);
+  }, [role, selectedCampaignId, selectedEncounterId]);
 
   const manualColorFor = (combatant: CombatantView) => {
     void manualColorVersion;
@@ -618,6 +607,34 @@ export default function App() {
   const saveColor = (combatant: CombatantView, color: string) => {
     saveManualTokenColor(campaignScope, combatant.name, color);
     setManualColorVersion((value) => value + 1);
+  };
+
+  const matchTokenColors = async () => {
+    if (role !== "GM") return;
+
+    setMatchingTokenColors(true);
+    setTokenMatchMessage(null);
+
+    try {
+      // getSceneTokenVisuals reads CHARACTER item.name (Owlbear Accessibility
+      // -> Name) and samples each SVG before returning, so colors are applied
+      // only after the full token scan has completed.
+      const tokens = await getSceneTokenVisuals(role);
+      const matches = buildTokenColorMatches(combatants, tokens);
+      const coloredMatches = matches.filter((match) => Boolean(match.backgroundColor));
+
+      setTokenColorMatches(matches);
+      setTokenMatchMessage(
+        `Matched ${matches.length} of ${combatants.length} combatants from ${tokens.length} Owlbear tokens · ${coloredMatches.length} SVG colors read`
+      );
+    } catch (cause) {
+      setTokenColorMatches([]);
+      setTokenMatchMessage(
+        cause instanceof Error ? cause.message : "Unable to match Owlbear token colors."
+      );
+    } finally {
+      setMatchingTokenColors(false);
+    }
   };
 
   if (!role) {
@@ -656,6 +673,16 @@ export default function App() {
           {ready && !pickerOpen && (
             <button className="change-selection" type="button" onClick={() => setPickerOpen(true)}>
               Change
+            </button>
+          )}
+          {ready && role === "GM" && (
+            <button
+              className="change-selection"
+              type="button"
+              onClick={() => void matchTokenColors()}
+              disabled={matchingTokenColors}
+            >
+              {matchingTokenColors ? "Matching…" : "Match token colors"}
             </button>
           )}
           <span className={`role-badge ${role === "GM" ? "gm" : "player"}`}>
@@ -723,6 +750,10 @@ export default function App() {
           <nav className="tabs" aria-label="Encounter sections">
             <button className="tab active">COMBAT</button>
           </nav>
+
+          {role === "GM" && tokenMatchMessage && (
+            <div className="picker-status" aria-live="polite">{tokenMatchMessage}</div>
+          )}
 
           <section className="table-head" aria-hidden="true">
             <span>INIT</span>
