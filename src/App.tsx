@@ -402,6 +402,8 @@ export default function App() {
 
   const obrAvailable = isOwlbearAvailable();
   const liveCatalogConfigured = isWguiBackendConfigured();
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
+  const selectedEncounter = encounters.find((option) => option.id === selectedEncounterId);
 
   useEffect(() => {
     let cancelled = false;
