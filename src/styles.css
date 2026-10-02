@@ -168,7 +168,7 @@ h1 {
 
 .table-head {
   display: grid;
-  grid-template-columns: 42px minmax(175px, 1fr) minmax(85px, 0.8fr) 45px 82px 22px;
+  grid-template-columns: 42px 38px minmax(125px, 1fr) minmax(75px, 0.8fr) 45px 82px 22px;
   gap: 8px;
   padding: 10px 14px 7px;
   color: #52646d;
@@ -440,10 +440,11 @@ h1 {
 
 @media (max-width: 500px) {
   .table-head {
-    grid-template-columns: 42px 1fr 45px 76px 22px;
+    grid-template-columns: 42px 34px minmax(105px, 1fr) 42px 76px 18px;
+    gap: 6px;
   }
 
-  .table-head span:nth-child(3) {
+  .table-head span:nth-child(4) {
     display: none;
   }
 
