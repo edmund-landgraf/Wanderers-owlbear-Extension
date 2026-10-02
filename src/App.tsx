@@ -175,6 +175,10 @@ export default function App() {
       }
     };
 
+    // A role change must never leave the previous role's projection on screen.
+    setState(null);
+    setError(null);
+    setOpenId(null);
     setLoading(true);
     refresh();
     const timer = window.setInterval(refresh, getPollInterval());
