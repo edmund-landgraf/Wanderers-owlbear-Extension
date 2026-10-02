@@ -1,4 +1,9 @@
 import { getSampleEncounter } from "./sampleEncounter";
+import {
+  invokeWguiFunction,
+  isWguiBackendConfigured,
+  type WguiSession
+} from "./wguiAuth";
 import type {
   CampaignOption,
   EncounterOption,
@@ -12,11 +17,43 @@ const encounterUrl = import.meta.env.VITE_WGUI_ENCOUNTER_URL?.trim();
 const campaignsUrl = import.meta.env.VITE_WGUI_CAMPAIGNS_URL?.trim();
 const encountersUrl = import.meta.env.VITE_WGUI_ENCOUNTERS_URL?.trim();
 
+type RawCampaign = {
+  id?: number | string;
+  campaign_id?: number | string;
+  user_id?: string | null;
+  name?: string;
+  title?: string;
+};
+
+type RawCharacter = {
+  id?: number | string;
+  campaign_id?: number | string | null;
+};
+
+type RawEncounter = {
+  id?: number | string;
+  encounter_id?: number | string;
+  fight_id?: number | string;
+  campaign_id?: number | string | null;
+  name?: string;
+  title?: string;
+  combatantCount?: number;
+  combatant_count?: number;
+  combatants?: {
+    list?: unknown[];
+  };
+};
+
 export function unwrapResponse(value: unknown): unknown {
   if (value && typeof value === "object" && "data" in value) {
     return (value as { data: unknown }).data;
   }
   return value;
+}
+
+function asList<T>(value: T | T[] | null | undefined): T[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 function asStringId(value: unknown): string | null {
@@ -25,26 +62,25 @@ function asStringId(value: unknown): string | null {
   return null;
 }
 
-function isCombatant(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const combatant = value as Record<string, unknown>;
-  return (
-    typeof combatant.id === "string" &&
-    typeof combatant.name === "string" &&
-    (combatant.side === "ally" || combatant.side === "enemy" || combatant.side === "neutral")
-  );
+function sameUserId(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-export function isSnapshot(value: unknown): value is EncounterSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<EncounterSnapshot>;
-  return Boolean(
-    candidate.encounter &&
-    typeof candidate.encounter.id === "string" &&
-    typeof candidate.encounter.name === "string" &&
-    Array.isArray(candidate.combatants) &&
-    candidate.combatants.every(isCombatant)
-  );
+function campaignOption(
+  campaign: RawCampaign,
+  relation: "owner" | "player"
+): CampaignOption | null {
+  const id = asStringId(campaign.id ?? campaign.campaign_id);
+  const name =
+    typeof campaign.name === "string"
+      ? campaign.name
+      : typeof campaign.title === "string"
+        ? campaign.title
+        : null;
+
+  if (!id || !name) return null;
+  return { id, name, relation };
 }
 
 function parseCampaigns(value: unknown, role: ViewerRole): CampaignOption[] {
@@ -78,7 +114,7 @@ function parseCampaigns(value: unknown, role: ViewerRole): CampaignOption[] {
   });
 }
 
-function parseEncounters(value: unknown): EncounterOption[] {
+export function parseEncounters(value: unknown): EncounterOption[] {
   const payload = unwrapResponse(value);
   const rows = Array.isArray(payload)
     ? payload
@@ -88,7 +124,7 @@ function parseEncounters(value: unknown): EncounterOption[] {
 
   return rows.flatMap((row) => {
     if (!row || typeof row !== "object") return [];
-    const record = row as Record<string, unknown>;
+    const record = row as RawEncounter;
     const id = asStringId(record.id ?? record.encounter_id ?? record.fight_id);
     const name =
       typeof record.name === "string"
@@ -103,10 +139,34 @@ function parseEncounters(value: unknown): EncounterOption[] {
         ? record.combatantCount
         : typeof record.combatant_count === "number"
           ? record.combatant_count
-          : null;
+          : Array.isArray(record.combatants?.list)
+            ? record.combatants!.list!.length
+            : null;
 
     return [{ id, name, combatantCount: count } satisfies EncounterOption];
   });
+}
+
+function isCombatant(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const combatant = value as Record<string, unknown>;
+  return (
+    typeof combatant.id === "string" &&
+    typeof combatant.name === "string" &&
+    (combatant.side === "ally" || combatant.side === "enemy" || combatant.side === "neutral")
+  );
+}
+
+export function isSnapshot(value: unknown): value is EncounterSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<EncounterSnapshot>;
+  return Boolean(
+    candidate.encounter &&
+    typeof candidate.encounter.id === "string" &&
+    typeof candidate.encounter.name === "string" &&
+    Array.isArray(candidate.combatants) &&
+    candidate.combatants.every(isCombatant)
+  );
 }
 
 async function postJson(url: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
@@ -126,10 +186,88 @@ async function postJson(url: string, body: unknown, signal?: AbortSignal): Promi
   return response.json();
 }
 
+async function loadSupabaseCampaignOptions(
+  role: ViewerRole,
+  session: WguiSession
+): Promise<CampaignOption[]> {
+  const ownedRows = asList(
+    await invokeWguiFunction<RawCampaign | RawCampaign[]>(
+      "find-campaign",
+      { user_id: session.userId },
+      session.accessToken
+    )
+  );
+
+  const characters = asList(
+    await invokeWguiFunction<RawCharacter | RawCharacter[]>(
+      "find-character",
+      { user_id: session.userId },
+      session.accessToken
+    )
+  );
+
+  const joinedIds = [...new Set(
+    characters
+      .map((character) => asStringId(character.campaign_id))
+      .filter((id): id is string => id !== null)
+  )];
+
+  const joinedRows = (
+    await Promise.all(
+      joinedIds.map(async (id) => {
+        try {
+          return asList(
+            await invokeWguiFunction<RawCampaign | RawCampaign[]>(
+              "find-campaign",
+              { id: Number(id) },
+              session.accessToken
+            )
+          );
+        } catch {
+          return [];
+        }
+      })
+    )
+  ).flat();
+
+  const options = new Map<string, CampaignOption>();
+
+  for (const row of joinedRows) {
+    const relation = sameUserId(row.user_id, session.userId) ? "owner" : "player";
+    const option = campaignOption(row, relation);
+    if (option) options.set(option.id, option);
+  }
+
+  for (const row of ownedRows) {
+    const option = campaignOption(row, "owner");
+    if (option) options.set(option.id, option);
+  }
+
+  const all = [...options.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  return role === "GM"
+    ? all.filter((campaign) => campaign.relation === "owner")
+    : all.filter((campaign) => campaign.relation === "player");
+}
+
 export async function loadCampaignOptions(
   role: ViewerRole,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  session?: WguiSession | null
 ): Promise<CampaignOption[]> {
+  if (isWguiBackendConfigured()) {
+    if (!session) throw new Error("Sign in to Wanderer's Guide to load campaigns.");
+    const campaigns = await loadSupabaseCampaignOptions(role, session);
+    if (!campaigns.length) {
+      throw new Error(
+        role === "GM"
+          ? "No owned WGUI campaigns were found for this account."
+          : "No joined WGUI campaigns were found for this account."
+      );
+    }
+    return campaigns;
+  }
+
   if (!campaignsUrl) {
     return [{
       id: "23",
@@ -153,8 +291,30 @@ export async function loadCampaignOptions(
 export async function loadEncounterOptions(
   campaignId: string,
   role: ViewerRole,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  session?: WguiSession | null
 ): Promise<EncounterOption[]> {
+  if (isWguiBackendConfigured()) {
+    if (!session) throw new Error("Sign in to Wanderer's Guide to load encounters.");
+
+    const campaignNumber = Number(campaignId);
+    if (!Number.isFinite(campaignNumber)) {
+      throw new Error("WGUI campaign id is invalid.");
+    }
+
+    const rows = await invokeWguiFunction<RawEncounter | RawEncounter[]>(
+      "wgui-ext-find-encounter",
+      { campaign_id: campaignNumber },
+      session.accessToken
+    );
+
+    const encounters = parseEncounters(asList(rows));
+    if (!encounters.length) {
+      throw new Error("No visible encounters were returned for this campaign.");
+    }
+    return encounters;
+  }
+
   if (!encountersUrl) {
     return [
       { id: "40", name: "wg combat test", combatantCount: 8 },
