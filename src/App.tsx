@@ -28,6 +28,14 @@ import {
   loadEncounter,
   loadEncounterOptions
 } from "./wgui";
+import {
+  getWguiSession,
+  isWguiBackendConfigured,
+  signInToWgui,
+  signOutOfWgui,
+  subscribeToWguiSession,
+  type WguiSession
+} from "./wguiAuth";
 
 function signed(value?: number | null) {
   if (value === null || value === undefined) return "—";
@@ -255,6 +263,54 @@ function CombatantRow({
   );
 }
 
+function WguiSignIn({
+  busy,
+  error,
+  onSubmit
+}: {
+  busy: boolean;
+  error: string | null;
+  onSubmit: (email: string, password: string) => void;
+}) {
+  return (
+    <section className="encounter-picker auth-picker">
+      <div className="picker-heading">
+        <span className="eyebrow">WGUI CONNECTION</span>
+        <strong>Sign in to Wanderer's Guide</strong>
+        <span className="muted">Use the same account as WGUI. This session is stored only in this extension origin.</span>
+      </div>
+
+      <form
+        className="auth-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          onSubmit(
+            String(data.get("email") ?? "").trim(),
+            String(data.get("password") ?? "")
+          );
+        }}
+      >
+        <label className="picker-field">
+          <span>Email</span>
+          <input name="email" type="email" autoComplete="username" required />
+        </label>
+
+        <label className="picker-field">
+          <span>Password</span>
+          <input name="password" type="password" autoComplete="current-password" required />
+        </label>
+
+        {error && <div className="picker-error">{error}</div>}
+
+        <button className="auth-submit" type="submit" disabled={busy}>
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function EncounterPicker({
   campaigns,
   encounters,
@@ -339,8 +395,13 @@ export default function App() {
   const [pickerOpen, setPickerOpen] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [wguiSession, setWguiSession] = useState<WguiSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const obrAvailable = isOwlbearAvailable();
+  const liveCatalogConfigured = isWguiBackendConfigured();
 
   useEffect(() => {
     let cancelled = false;
@@ -359,7 +420,38 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    if (!liveCatalogConfigured) {
+      setAuthChecked(true);
+      return;
+    }
+
+    getWguiSession()
+      .then((session) => {
+        if (active) setWguiSession(session);
+      })
+      .finally(() => {
+        if (active) setAuthChecked(true);
+      });
+
+    const unsubscribe = subscribeToWguiSession((session) => {
+      if (active) {
+        setWguiSession(session);
+        setAuthChecked(true);
+        setAuthError(null);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [liveCatalogConfigured]);
+
+  useEffect(() => {
     if (!role) return;
+    if (liveCatalogConfigured && !wguiSession) return;
 
     const controller = new AbortController();
     let active = true;
@@ -373,7 +465,7 @@ export default function App() {
     setCatalogError(null);
     setCatalogLoading(true);
 
-    loadCampaignOptions(role, controller.signal)
+    loadCampaignOptions(role, controller.signal, wguiSession)
       .then((options) => {
         if (active) setCampaigns(options);
       })
@@ -390,7 +482,7 @@ export default function App() {
       active = false;
       controller.abort();
     };
-  }, [role]);
+  }, [role, liveCatalogConfigured, wguiSession]);
 
   useEffect(() => {
     if (!role || !selectedCampaignId) {
@@ -407,7 +499,7 @@ export default function App() {
     setCatalogError(null);
     setCatalogLoading(true);
 
-    loadEncounterOptions(selectedCampaignId, role, controller.signal)
+    loadEncounterOptions(selectedCampaignId, role, controller.signal, wguiSession)
       .then((options) => {
         if (active) setEncounters(options);
       })
@@ -424,7 +516,7 @@ export default function App() {
       active = false;
       controller.abort();
     };
-  }, [role, selectedCampaignId]);
+  }, [role, selectedCampaignId, wguiSession]);
 
   useEffect(() => {
     if (!role || !selectedCampaignId || !selectedEncounterId) {
@@ -544,6 +636,18 @@ export default function App() {
         </div>
 
         <div className="header-side">
+          {liveCatalogConfigured && wguiSession && (
+            <button
+              className="change-selection"
+              type="button"
+              title={wguiSession.email ?? "WGUI account"}
+              onClick={() => {
+                void signOutOfWgui();
+              }}
+            >
+              Sign out
+            </button>
+          )}
           {ready && !pickerOpen && (
             <button className="change-selection" type="button" onClick={() => setPickerOpen(true)}>
               Change
@@ -569,7 +673,27 @@ export default function App() {
         </div>
       )}
 
-      {pickerOpen && (
+      {liveCatalogConfigured && authChecked && !wguiSession && (
+        <WguiSignIn
+          busy={authBusy}
+          error={authError}
+          onSubmit={(email, password) => {
+            setAuthBusy(true);
+            setAuthError(null);
+            void signInToWgui(email, password)
+              .then((result) => {
+                if (result.error) {
+                  setAuthError(result.error);
+                } else {
+                  setWguiSession(result.session);
+                }
+              })
+              .finally(() => setAuthBusy(false));
+          }}
+        />
+      )}
+
+      {pickerOpen && (!liveCatalogConfigured || wguiSession) && (
         <EncounterPicker
           campaigns={campaigns}
           encounters={encounters}
