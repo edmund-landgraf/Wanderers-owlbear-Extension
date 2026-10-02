@@ -63,6 +63,9 @@ function interestingSnippets(source) {
     "character-file",
     "shared-rolls",
     "functions/v1",
+    "wgui-ext-find-encounter",
+    "\"find-encounter\"",
+    "functions.invoke",
     "encounters"
   ];
   const snippets = [];
