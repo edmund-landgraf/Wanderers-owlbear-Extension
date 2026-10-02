@@ -160,6 +160,8 @@ export default function App() {
 
     const controller = new AbortController();
     let mounted = true;
+    let timer: number | undefined;
+    const pollInterval = getPollInterval();
 
     const refresh = async () => {
       try {
@@ -171,7 +173,10 @@ export default function App() {
         if (!mounted || controller.signal.aborted) return;
         setError(cause instanceof Error ? cause.message : "Unable to load the encounter.");
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+          timer = window.setTimeout(refresh, pollInterval);
+        }
       }
     };
 
@@ -181,12 +186,11 @@ export default function App() {
     setOpenId(null);
     setLoading(true);
     refresh();
-    const timer = window.setInterval(refresh, getPollInterval());
 
     return () => {
       mounted = false;
       controller.abort();
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [role]);
 
