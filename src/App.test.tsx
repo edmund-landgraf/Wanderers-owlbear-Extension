@@ -12,7 +12,8 @@ vi.mock("./owbear", () => ({
   isOwlbearAvailable: () => true,
   getViewerRole: () => new Promise<"GM" | "PLAYER">((resolve) => {
     mocks.roleResolver = resolve;
-  })
+  }),
+  subscribeToViewerRole: () => () => {}
 }));
 
 vi.mock("./wgui", () => ({
