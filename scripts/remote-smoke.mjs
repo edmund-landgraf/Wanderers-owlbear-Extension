@@ -122,12 +122,18 @@ try {
     console.log(`WGUI JS: ${source.length} bytes - ${assetUrl}`);
 
     if (!supabaseUrl) {
-      const urlMatch = source.match(/https:\/\/[a-z0-9-]+\.supabase\.co/i);
-      if (urlMatch) supabaseUrl = urlMatch[0];
+      const urlMatch = source.match(/https:\/\/[a-z0-9.-]+(?:supabase\.co|supabase\.in)/i);
+      if (urlMatch) {
+        supabaseUrl = urlMatch[0];
+        console.log("WGUI PUBLIC CONFIG URL:", supabaseUrl);
+      }
     }
     if (!anonKey) {
-      const keyMatch = source.match(/eyJ[A-Za-z0-9_-]{80,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-      if (keyMatch) anonKey = keyMatch[0];
+      const keyMatch = source.match(/(?:eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|sb_publishable_[A-Za-z0-9_-]+)/);
+      if (keyMatch) {
+        anonKey = keyMatch[0];
+        console.log("WGUI PUBLIC CONFIG KEY TYPE:", anonKey.startsWith("sb_publishable_") ? "publishable" : "jwt");
+      }
     }
 
     for (const snippet of interestingSnippets(source)) {
