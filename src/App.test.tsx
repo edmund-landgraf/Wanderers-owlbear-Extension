@@ -130,8 +130,8 @@ describe("role-gated encounter loading and selection", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Change" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Change" }));
 
-    expect(screen.getByLabelText("Campaign")).toHaveValue("23");
-    expect(screen.getByLabelText("Encounter")).toHaveValue("40");
+    expect((screen.getByLabelText("Campaign") as HTMLSelectElement).value).toBe("23");
+    expect((screen.getByLabelText("Encounter") as HTMLSelectElement).value).toBe("40");
   });
 
   it("never overlaps polling requests when a feed response is slow", async () => {
