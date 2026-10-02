@@ -3,7 +3,7 @@ import type { CombatantView } from "./types";
 export type OwlbearTokenVisual = {
   id: string;
   name: string;
-  imageUrl: string;
+  backgroundColor?: string | null;
 };
 
 export function normalizeCombatantName(value: string): string {
