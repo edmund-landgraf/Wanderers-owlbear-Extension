@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5195",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 5195"
+    "preview": "vite preview --host 0.0.0.0 --port 5195",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run test:unit && npm run build && npm run test:e2e",
+    "smoke:wgui": "node scripts/remote-smoke.mjs"
   },
   "dependencies": {
     "@owlbear-rodeo/sdk": "^3.1.0",
@@ -14,10 +19,15 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.1.0",
     "typescript": "^5.6.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
   }
 }
