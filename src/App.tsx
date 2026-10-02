@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CombatantView, EncounterSourceState, ViewerRole } from "./types";
-import { getViewerRole, isOwlbearAvailable } from "./owbear";
+import { getViewerRole, isOwlbearAvailable, subscribeToViewerRole } from "./owbear";
 import { getPollInterval, loadEncounter } from "./wgui";
 
 function signed(value?: number | null) {
@@ -144,7 +144,15 @@ export default function App() {
     getViewerRole().then((value) => {
       if (!cancelled) setRole(value);
     });
-    return () => { cancelled = true; };
+
+    const unsubscribe = subscribeToViewerRole((value) => {
+      if (!cancelled) setRole(value);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
