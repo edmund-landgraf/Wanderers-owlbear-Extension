@@ -75,6 +75,56 @@ describe("role-gated encounter loading", () => {
     expect(screen.getByText("GM VIEW")).toBeTruthy();
   });
 
+  it("never overlaps polling requests when a feed response is slow", async () => {
+    vi.useFakeTimers();
+
+    let resolveFirst: ((value: unknown) => void) | null = null;
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    const emptyResponse = {
+      source: "live",
+      lastUpdated: new Date("2026-10-02T18:00:00Z"),
+      snapshot: {
+        encounter: { id: "40", name: "Test Encounter", round: 1 },
+        combatants: []
+      }
+    };
+
+    mocks.loadEncounter
+      .mockReturnValueOnce(firstResponse)
+      .mockResolvedValue(emptyResponse);
+
+    render(<App />);
+
+    await act(async () => {
+      mocks.roleResolver?.("GM");
+      await Promise.resolve();
+    });
+
+    expect(mocks.loadEncounter).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(180_000);
+      await Promise.resolve();
+    });
+    expect(mocks.loadEncounter).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst?.(emptyResponse);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
+    });
+    expect(mocks.loadEncounter).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
   it("clears GM data immediately before loading a downgraded Player projection", async () => {
     let resolvePlayer: ((value: unknown) => void) | null = null;
     const playerResponse = new Promise((resolve) => {
