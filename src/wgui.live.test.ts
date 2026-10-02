@@ -125,7 +125,9 @@ describe("live WGUI feed", () => {
     ]);
 
     await expect(loadEncounterOptions("23", "PLAYER")).resolves.toEqual([
-      { id: "40", name: "wg combat test", combatantCount: 8 }
+      { id: "40", name: "wg combat test", combatantCount: 8 },
+      { id: "sample-getting-darkwood", name: "Getting the Darkwood", combatantCount: 13 },
+      { id: "sample-test-2", name: "test 2", combatantCount: 7 }
     ]);
 
     const result = await loadEncounter(
