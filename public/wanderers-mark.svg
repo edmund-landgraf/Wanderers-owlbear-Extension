@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Wanderer's Guide">
+  <rect width="64" height="64" rx="14" fill="#0d1418"/>
+  <path d="M13 17h9l5 26 5-18 5 18 5-26h9L43 49h-9l-2-9-2 9h-9L13 17z" fill="#d0ad6a"/>
+  <path d="M15 12h34" stroke="#7f8d93" stroke-width="3" stroke-linecap="round"/>
+</svg>
