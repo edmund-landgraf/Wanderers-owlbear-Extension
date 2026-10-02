@@ -2,6 +2,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const purpleSvg = "data:image/svg+xml,%3Csvg%3E%3Ccircle%20fill%3D%22%236d28d9%22%2F%3E%3C%2Fsvg%3E";
+const blueSvg = "data:image/svg+xml,%3Csvg%3E%3Ccircle%20fill%3D%22%232fb8d0%22%2F%3E%3C%2Fsvg%3E";
+
 const state = vi.hoisted(() => ({
   available: false,
   ready: true,
@@ -61,7 +64,7 @@ import {
   subscribeToViewerRole
 } from "./owbear";
 
-describe("Owlbear role handling", () => {
+describe("Owlbear role and token handling", () => {
   beforeEach(() => {
     state.available = false;
     state.ready = true;
@@ -107,7 +110,7 @@ describe("Owlbear role handling", () => {
     expect(state.playerChange).toBeNull();
   });
 
-  it("reads GM-visible CHARACTER image names and image URLs", async () => {
+  it("reads GM-visible CHARACTER names and extracts SVG color without rendering the SVG", async () => {
     state.available = true;
     state.items = [
       {
@@ -115,14 +118,14 @@ describe("Owlbear role handling", () => {
         type: "IMAGE",
         layer: "CHARACTER",
         name: "Ulysses",
-        image: { url: "https://example.test/ulysses.svg" }
+        image: { url: purpleSvg, mime: "image/svg+xml" }
       },
       {
         id: "map",
         type: "IMAGE",
         layer: "MAP",
         name: "Ulysses",
-        image: { url: "https://example.test/map.webp" }
+        image: { url: purpleSvg, mime: "image/svg+xml" }
       },
       {
         id: "text",
@@ -136,7 +139,7 @@ describe("Owlbear role handling", () => {
       {
         id: "ulysses-token",
         name: "Ulysses",
-        imageUrl: "https://example.test/ulysses.svg"
+        backgroundColor: "#6d28d9"
       }
     ]);
   });
@@ -148,13 +151,13 @@ describe("Owlbear role handling", () => {
       type: "IMAGE",
       layer: "CHARACTER",
       name: "Secret Creature",
-      image: { url: "secret.svg" }
+      image: { url: purpleSvg, mime: "image/svg+xml" }
     }];
 
     await expect(getSceneTokenVisuals("PLAYER")).resolves.toEqual([]);
   });
 
-  it("subscribes to scene token visuals for GM only", () => {
+  it("subscribes to scene token colors for GM only", async () => {
     state.available = true;
     const updates: unknown[] = [];
     const unsubscribe = subscribeToSceneTokenVisuals("GM", (tokens) => updates.push(tokens));
@@ -164,12 +167,14 @@ describe("Owlbear role handling", () => {
       type: "IMAGE",
       layer: "CHARACTER",
       name: "Kota",
-      image: { url: "kota.svg" }
+      image: { url: blueSvg, mime: "image/svg+xml" }
     }]);
 
-    expect(updates).toEqual([[
-      { id: "kota-token", name: "Kota", imageUrl: "kota.svg" }
-    ]]);
+    await vi.waitFor(() => {
+      expect(updates).toEqual([[
+        { id: "kota-token", name: "Kota", backgroundColor: "#2fb8d0" }
+      ]]);
+    });
 
     unsubscribe();
     expect(state.itemChange).toBeNull();
