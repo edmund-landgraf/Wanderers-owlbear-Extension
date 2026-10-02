@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function selectSampleEncounter(page: Page) {
-  const campaign = page.getByLabel("Campaign");
+  const campaign = page.getByLabel("Campaign", { exact: true });
   await expect(campaign).toBeVisible();
   await campaign.selectOption("23");
 
-  const encounter = page.getByLabel("Encounter");
+  const encounter = page.getByLabel("Encounter", { exact: true });
   await expect(encounter).toBeVisible();
   await encounter.selectOption("40");
 
@@ -29,20 +29,20 @@ test.describe("WGUI combat panel", () => {
   test("campaign appears first, encounter second, then selectors collapse", async ({ page }) => {
     await page.goto("/?role=GM");
 
-    await expect(page.getByLabel("Campaign")).toBeVisible();
-    await expect(page.getByLabel("Encounter")).toHaveCount(0);
+    await expect(page.getByLabel("Campaign", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Encounter", { exact: true })).toHaveCount(0);
 
-    await page.getByLabel("Campaign").selectOption("23");
-    await expect(page.getByLabel("Encounter")).toBeVisible();
+    await page.getByLabel("Campaign", { exact: true }).selectOption("23");
+    await expect(page.getByLabel("Encounter", { exact: true })).toBeVisible();
 
-    await page.getByLabel("Encounter").selectOption("40");
-    await expect(page.getByLabel("Campaign")).toHaveCount(0);
-    await expect(page.getByLabel("Encounter")).toHaveCount(0);
+    await page.getByLabel("Encounter", { exact: true }).selectOption("40");
+    await expect(page.getByLabel("Campaign", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Encounter", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Change" })).toBeVisible();
 
     await page.getByRole("button", { name: "Change" }).click();
-    await expect(page.getByLabel("Campaign")).toHaveValue("23");
-    await expect(page.getByLabel("Encounter")).toHaveValue("40");
+    await expect(page.getByLabel("Campaign", { exact: true })).toHaveValue("23");
+    await expect(page.getByLabel("Encounter", { exact: true })).toHaveValue("40");
   });
 
   test("GM and player previews produce no browser page errors or console errors", async ({ page }) => {
@@ -103,7 +103,7 @@ test.describe("WGUI combat panel", () => {
 
     await page.getByRole("button", { name: "Player" }).click();
     await expect(page.getByText("PLAYER VIEW")).toBeVisible();
-    await expect(page.getByLabel("Campaign")).toBeVisible();
+    await expect(page.getByLabel("Campaign", { exact: true })).toBeVisible();
 
     await selectSampleEncounter(page);
     const row = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
