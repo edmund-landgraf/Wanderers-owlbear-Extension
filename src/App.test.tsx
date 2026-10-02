@@ -102,7 +102,9 @@ describe("role-gated encounter loading and selection", () => {
       expect(mocks.loadEncounter).toHaveBeenCalledWith(
         "GM",
         expect.any(AbortSignal),
-        { campaignId: "23", fightId: "40" }
+        { campaignId: "23", fightId: "40" },
+        null,
+        "The Price of Prophecy (Production)"
       );
     });
 
@@ -114,11 +116,11 @@ describe("role-gated encounter loading and selection", () => {
     render(<App />);
     await resolveRole("PLAYER");
 
-    expect(mocks.loadCampaignOptions).toHaveBeenCalledWith("PLAYER", expect.any(AbortSignal));
+    expect(mocks.loadCampaignOptions).toHaveBeenCalledWith("PLAYER", expect.any(AbortSignal), null);
 
     fireEvent.change(screen.getByLabelText("Campaign"), { target: { value: "23" } });
     await waitFor(() => {
-      expect(mocks.loadEncounterOptions).toHaveBeenCalledWith("23", "PLAYER", expect.any(AbortSignal));
+      expect(mocks.loadEncounterOptions).toHaveBeenCalledWith("23", "PLAYER", expect.any(AbortSignal), null);
     });
   });
 
