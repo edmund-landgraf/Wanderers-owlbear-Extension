@@ -1,6 +1,33 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("WGUI combat panel", () => {
+  test("manifest and extension icon are served correctly", async ({ request }) => {
+    const manifestResponse = await request.get("/manifest.json");
+    expect(manifestResponse.ok()).toBe(true);
+    const manifest = await manifestResponse.json();
+    expect(manifest.manifest_version).toBe(1);
+    expect(manifest.action?.popover).toBe("/");
+
+    const iconResponse = await request.get(manifest.action.icon);
+    expect(iconResponse.ok()).toBe(true);
+    expect(iconResponse.headers()["content-type"]).toContain("image/svg+xml");
+  });
+
+  test("GM and player previews produce no browser page errors or console errors", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(`console: ${message.text()}`);
+    });
+
+    await page.goto("/?role=GM");
+    await expect(page.getByText("GM VIEW")).toBeVisible();
+    await page.goto("/?role=PLAYER");
+    await expect(page.getByText("PLAYER VIEW")).toBeVisible();
+
+    expect(errors).toEqual([]);
+  });
+
   test("GM view displays full combat data", async ({ page }) => {
     await page.goto("/?role=GM");
 
