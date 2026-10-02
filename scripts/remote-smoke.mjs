@@ -149,19 +149,21 @@ try {
   console.log(`WGUI discovery checked ${seen.size} JS modules and found ${discovered} interesting snippets`);
 
   if (supabaseUrl && anonKey) {
-    const functionUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/wgui-ext-find-encounter`;
-    const probe = await fetch(functionUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`
-      },
-      body: JSON.stringify({ campaign_id: 23 }),
-      signal: controller.signal
-    });
-    const body = await probe.text();
-    console.log(`WGUI ANON ENCOUNTER PROBE: ${probe.status} ${body.slice(0, 1500).replace(/\s+/g, " ")}`);
+    for (const functionName of ["wgui-ext-find-encounter", "find-encounter"]) {
+      const functionUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/${functionName}`;
+      const probe = await fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        },
+        body: JSON.stringify({ campaign_id: 23 }),
+        signal: controller.signal
+      });
+      const body = await probe.text();
+      console.log(`WGUI ANON ENCOUNTER PROBE ${functionName}: ${probe.status} ${body.slice(0, 1500).replace(/\s+/g, " ")}`);
+    }
   } else {
     console.log("WGUI ANON ENCOUNTER PROBE: skipped; public client config not discovered");
   }
