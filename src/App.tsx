@@ -535,7 +535,9 @@ export default function App() {
         const next = await loadEncounter(
           role,
           controller.signal,
-          { campaignId: selectedCampaignId, fightId: selectedEncounterId }
+          { campaignId: selectedCampaignId, fightId: selectedEncounterId },
+          wguiSession,
+          selectedCampaign?.name ?? null
         );
         if (!mounted) return;
         setState(next);
@@ -562,7 +564,7 @@ export default function App() {
       controller.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [role, selectedCampaignId, selectedEncounterId]);
+  }, [role, selectedCampaignId, selectedEncounterId, wguiSession, selectedCampaign?.name]);
 
   useEffect(() => {
     if (!role || role !== "GM") {
