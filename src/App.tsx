@@ -66,7 +66,7 @@ function DetailPanel({ combatant, role }: { combatant: CombatantView; role: View
         <span className="detail-label">Conditions</span>
         {combatant.conditions?.length ? (
           <div className="condition-list">
-            {combatant.conditions.map((condition) => <span className="condition-chip" key={condition}>{condition}</span>)}
+            {combatant.conditions.map((condition, index) => <span className="condition-chip" key={`${condition}-${index}`}>{condition}</span>)}
           </div>
         ) : (
           <span className="muted">None</span>
@@ -107,8 +107,8 @@ function CombatantRow({
         </div>
 
         <div className="conditions-cell">
-          {conditions.slice(0, 2).map((condition) => (
-            <span className="condition-chip compact" key={condition}>{condition}</span>
+          {conditions.slice(0, 2).map((condition, index) => (
+            <span className="condition-chip compact" key={`${condition}-${index}`}>{condition}</span>
           ))}
           {conditions.length > 2 && <span className="more-chip">+{conditions.length - 2}</span>}
         </div>
