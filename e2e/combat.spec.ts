@@ -1,4 +1,17 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function selectSampleEncounter(page: Page) {
+  const campaign = page.getByLabel("Campaign");
+  await expect(campaign).toBeVisible();
+  await campaign.selectOption("23");
+
+  const encounter = page.getByLabel("Encounter");
+  await expect(encounter).toBeVisible();
+  await encounter.selectOption("40");
+
+  await expect(page.getByRole("button", { name: "Change" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "wg combat test" })).toBeVisible();
+}
 
 test.describe("WGUI combat panel", () => {
   test("manifest and extension icon are served correctly", async ({ request }) => {
@@ -13,6 +26,25 @@ test.describe("WGUI combat panel", () => {
     expect(iconResponse.headers()["content-type"]).toContain("image/svg+xml");
   });
 
+  test("campaign appears first, encounter second, then selectors collapse", async ({ page }) => {
+    await page.goto("/?role=GM");
+
+    await expect(page.getByLabel("Campaign")).toBeVisible();
+    await expect(page.getByLabel("Encounter")).toHaveCount(0);
+
+    await page.getByLabel("Campaign").selectOption("23");
+    await expect(page.getByLabel("Encounter")).toBeVisible();
+
+    await page.getByLabel("Encounter").selectOption("40");
+    await expect(page.getByLabel("Campaign")).toHaveCount(0);
+    await expect(page.getByLabel("Encounter")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Change" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Change" }).click();
+    await expect(page.getByLabel("Campaign")).toHaveValue("23");
+    await expect(page.getByLabel("Encounter")).toHaveValue("40");
+  });
+
   test("GM and player previews produce no browser page errors or console errors", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
@@ -22,17 +54,18 @@ test.describe("WGUI combat panel", () => {
 
     await page.goto("/?role=GM");
     await expect(page.getByText("GM VIEW")).toBeVisible();
+    await selectSampleEncounter(page);
+
     await page.goto("/?role=PLAYER");
     await expect(page.getByText("PLAYER VIEW")).toBeVisible();
+    await selectSampleEncounter(page);
 
     expect(errors).toEqual([]);
   });
 
   test("GM view displays full combat data", async ({ page }) => {
     await page.goto("/?role=GM");
-
-    await expect(page.getByText("GM VIEW")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "wg combat test" })).toBeVisible();
+    await selectSampleEncounter(page);
 
     const row = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
     await expect(row).toContainText("Level 4");
@@ -50,8 +83,7 @@ test.describe("WGUI combat panel", () => {
 
   test("player view does not expose exact enemy statistics", async ({ page }) => {
     await page.goto("/?role=PLAYER");
-
-    await expect(page.getByText("PLAYER VIEW")).toBeVisible();
+    await selectSampleEncounter(page);
 
     const row = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
     await expect(row).toContainText("Enemy");
@@ -65,11 +97,15 @@ test.describe("WGUI combat panel", () => {
     await expect(row).toContainText("Frightened 1");
   });
 
-  test("browser preview can switch between GM and player projections", async ({ page }) => {
+  test("browser preview role switch requires a role-appropriate campaign selection", async ({ page }) => {
     await page.goto("/?role=GM");
-    await page.getByRole("button", { name: "Player" }).click();
+    await selectSampleEncounter(page);
 
+    await page.getByRole("button", { name: "Player" }).click();
     await expect(page.getByText("PLAYER VIEW")).toBeVisible();
+    await expect(page.getByLabel("Campaign")).toBeVisible();
+
+    await selectSampleEncounter(page);
     const row = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
     await expect(row).toContainText("Injured");
     await expect(row).not.toContainText("40 / 59");
@@ -77,6 +113,7 @@ test.describe("WGUI combat panel", () => {
 
   test("player page contains no exact enemy HP or defense values from sample data", async ({ page }) => {
     await page.goto("/?role=PLAYER");
+    await selectSampleEncounter(page);
 
     await expect(page.locator("body")).not.toContainText("40 / 59");
     await expect(page.locator("body")).not.toContainText("58 / 72");
@@ -85,29 +122,38 @@ test.describe("WGUI combat panel", () => {
     await expect(page.locator("body")).not.toContainText("+12");
   });
 
-  test("unmatched token color can be selected and persists locally", async ({ page }) => {
+  test("unmatched token color changes only the React initial circle and persists locally", async ({ page }) => {
     await page.goto("/?role=GM");
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
+    await selectSampleEncounter(page);
 
     const row = page.locator(".combatant-row").filter({ hasText: "Ulysses" });
     await expect(row).toHaveAttribute("data-token-match", "unmatched");
 
+    const avatar = row.locator(".initial-token");
+    await expect(avatar).toContainText("U");
+    await expect(row.locator("img")).toHaveCount(0);
+
     await row.locator(".combatant-main").click();
     const purple = row.getByRole("button", { name: "Set Ulysses token color to #6d28d9" });
-    await expect(purple).toBeVisible();
     await purple.click();
 
     await expect(row).toHaveAttribute("data-token-match", "manual");
     await expect(purple).toHaveAttribute("aria-pressed", "true");
 
+    const background = await avatar.evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(background).toBe("rgb(109, 40, 217)");
+
     await page.reload();
+    await selectSampleEncounter(page);
     const reloadedRow = page.locator(".combatant-row").filter({ hasText: "Ulysses" });
     await expect(reloadedRow).toHaveAttribute("data-token-match", "manual");
   });
 
   test("opening another combatant closes the previous detail panel", async ({ page }) => {
     await page.goto("/?role=GM");
+    await selectSampleEncounter(page);
 
     const hadrosaurid = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
     const ulysses = page.locator(".combatant-row").filter({ hasText: "Ulysses" });
@@ -123,6 +169,7 @@ test.describe("WGUI combat panel", () => {
   test("long combatant and condition labels stay within the Owlbear panel", async ({ page }) => {
     await page.setViewportSize({ width: 560, height: 820 });
     await page.goto("/?role=GM");
+    await selectSampleEncounter(page);
 
     const row = page.locator(".combatant-row").first();
     await row.locator(".identity strong").evaluate((node) => {
@@ -147,8 +194,8 @@ test.describe("WGUI combat panel", () => {
     test(`does not horizontally overflow at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 820 });
       await page.goto("/?role=GM");
+      await selectSampleEncounter(page);
 
-      await expect(page.getByText("GM VIEW")).toBeVisible();
       const dimensions = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth
