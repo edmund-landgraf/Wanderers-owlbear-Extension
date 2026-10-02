@@ -12,6 +12,16 @@ export function unwrapResponse(value: unknown): unknown {
   return value;
 }
 
+function isCombatant(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const combatant = value as Record<string, unknown>;
+  return (
+    typeof combatant.id === "string" &&
+    typeof combatant.name === "string" &&
+    (combatant.side === "ally" || combatant.side === "enemy" || combatant.side === "neutral")
+  );
+}
+
 export function isSnapshot(value: unknown): value is EncounterSnapshot {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<EncounterSnapshot>;
@@ -19,7 +29,8 @@ export function isSnapshot(value: unknown): value is EncounterSnapshot {
     candidate.encounter &&
     typeof candidate.encounter.id === "string" &&
     typeof candidate.encounter.name === "string" &&
-    Array.isArray(candidate.combatants)
+    Array.isArray(candidate.combatants) &&
+    candidate.combatants.every(isCombatant)
   );
 }
 
