@@ -48,7 +48,54 @@ test.describe("WGUI combat panel", () => {
     await expect(row).not.toContainText("40 / 59");
   });
 
-  for (const width of [560, 420, 360, 320]) {
+  test("player page contains no exact enemy HP or defense values from sample data", async ({ page }) => {
+    await page.goto("/?role=PLAYER");
+
+    await expect(page.locator("body")).not.toContainText("40 / 59");
+    await expect(page.locator("body")).not.toContainText("58 / 72");
+    await expect(page.locator("body")).not.toContainText("Level 4");
+    await expect(page.locator("body")).not.toContainText("+11");
+    await expect(page.locator("body")).not.toContainText("+12");
+  });
+
+  test("opening another combatant closes the previous detail panel", async ({ page }) => {
+    await page.goto("/?role=GM");
+
+    const hadrosaurid = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
+    const ulysses = page.locator(".combatant-row").filter({ hasText: "Ulysses" });
+
+    await hadrosaurid.getByRole("button").click();
+    await expect(hadrosaurid.locator(".combatant-detail")).toBeVisible();
+
+    await ulysses.getByRole("button").click();
+    await expect(ulysses.locator(".combatant-detail")).toBeVisible();
+    await expect(hadrosaurid.locator(".combatant-detail")).toHaveCount(0);
+  });
+
+  test("long combatant and condition labels stay within the Owlbear panel", async ({ page }) => {
+    await page.setViewportSize({ width: 560, height: 820 });
+    await page.goto("/?role=GM");
+
+    const row = page.locator(".combatant-row").first();
+    await row.locator(".identity strong").evaluate((node) => {
+      node.textContent = "An Extremely Long Pathfinder Creature Name That Should Never Widen The Panel";
+    });
+
+    const chip = row.locator(".condition-chip").first();
+    if (await chip.count()) {
+      await chip.evaluate((node) => {
+        node.textContent = "An Extremely Long Persistent Condition Name That Must Truncate";
+      });
+    }
+
+    const dimensions = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth
+    }));
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+  });
+
+  for (const width of [560, 480, 420, 390, 360, 340, 320]) {
     test(`does not horizontally overflow at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 820 });
       await page.goto("/?role=GM");
