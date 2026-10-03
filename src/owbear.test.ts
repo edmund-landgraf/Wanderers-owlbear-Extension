@@ -13,7 +13,9 @@ const state = vi.hoisted(() => ({
   playerChange: null as null | ((player: { role: "GM" | "PLAYER" }) => void),
   readyCallback: null as null | (() => void),
   items: [] as any[],
-  itemChange: null as null | ((items: any[]) => void)
+  itemChange: null as null | ((items: any[]) => void),
+  metadata: {} as Record<string, unknown>,
+  metadataChange: null as null | ((metadata: Record<string, unknown>) => void)
 }));
 
 vi.mock("@owlbear-rodeo/sdk", () => ({
@@ -40,6 +42,21 @@ vi.mock("@owlbear-rodeo/sdk", () => ({
         };
       }
     },
+    room: {
+      async getMetadata() {
+        return state.metadata;
+      },
+      async setMetadata(update: Record<string, unknown>) {
+        state.metadata = { ...state.metadata, ...update };
+        state.metadataChange?.(state.metadata);
+      },
+      onMetadataChange(callback: (metadata: Record<string, unknown>) => void) {
+        state.metadataChange = callback;
+        return () => {
+          state.metadataChange = null;
+        };
+      }
+    },
     scene: {
       items: {
         async getItems() {
@@ -54,13 +71,18 @@ vi.mock("@owlbear-rodeo/sdk", () => ({
       }
     }
   },
-  isImage: (item: any) => item?.type === "IMAGE"
+  isImage: (item: any) => item?.type === "IMAGE",
+  isShape: (item: any) => item?.type === "SHAPE"
 }));
 
 import {
   getSceneTokenVisuals,
   getViewerRole,
+  publishManualTokenColorBook,
+  publishSharedTokenColors,
+  subscribeToManualTokenColorBook,
   subscribeToSceneTokenVisuals,
+  subscribeToSharedTokenColors,
   subscribeToViewerRole
 } from "./owbear";
 
@@ -74,6 +96,9 @@ describe("Owlbear role and token handling", () => {
     state.readyCallback = null;
     state.items = [];
     state.itemChange = null;
+    state.metadata = {};
+    state.metadataChange = null;
+    window.localStorage.clear();
     window.history.replaceState({}, "", "/");
   });
 
@@ -144,6 +169,41 @@ describe("Owlbear role and token handling", () => {
     ]);
   });
 
+  it("uses each creature ring instead of one shared portrait color", async () => {
+    state.available = true;
+    const portrait = "https://tokens.example/brown-creature.png";
+    const creature = (id: string, name: string, strokeColor: string) => ([
+      {
+        id,
+        type: "IMAGE",
+        layer: "CHARACTER",
+        name,
+        image: { url: portrait, mime: "image/png" }
+      },
+      {
+        id: `${id}-ring`,
+        type: "SHAPE",
+        layer: "ATTACHMENT",
+        attachedTo: id,
+        shapeType: "CIRCLE",
+        scale: { x: 1, y: 1 },
+        style: { strokeColor, strokeOpacity: 1, strokeWidth: 5, fillOpacity: 0 }
+      }
+    ]);
+    state.items = [
+      ...creature("vestige", "Unspooled Vestige", "#7c3aed"),
+      ...creature("statue", "Animated Statue", "#94a3b8")
+    ];
+
+    const tokens = await getSceneTokenVisuals("GM");
+    const colors = tokens.map((token) => token.backgroundColor);
+
+    expect(tokens).toHaveLength(2);
+    expect(new Set(colors).size).toBe(colors.length);
+    expect(colors).toEqual(["#7c3aed", "#94a3b8"]);
+    expect(colors.every((color) => color === "#8b5a2b")).toBe(false);
+  });
+
   it("never reads scene token names for Player view", async () => {
     state.available = true;
     state.items = [{
@@ -178,6 +238,51 @@ describe("Owlbear role and token handling", () => {
 
     unsubscribe();
     expect(state.itemChange).toBeNull();
+  });
+
+  it("publishes GM token colors into room metadata for players", async () => {
+    state.available = true;
+    const seen: Record<string, string>[] = [];
+    const unsubscribe = subscribeToSharedTokenColors("campaign-23", (colors) => {
+      seen.push(colors);
+    });
+
+    await publishSharedTokenColors("campaign-23", { kota: "#2fb8d0" });
+
+    await vi.waitFor(() => {
+      expect(seen.at(-1)).toEqual({ kota: "#2fb8d0" });
+    });
+
+    unsubscribe();
+  });
+
+  it("restores manual token colors from room metadata after browser storage is gone", async () => {
+    state.available = true;
+    state.metadata = {
+      "wanderers-guide/manual-token-colors": { "23::sister mirela voss": "#c95dde" }
+    };
+    const seen: Record<string, string>[] = [];
+    const unsubscribe = subscribeToManualTokenColorBook((colors) => {
+      seen.push(colors);
+    });
+
+    await vi.waitFor(() => {
+      expect(seen.at(-1)).toEqual({ "23::sister mirela voss": "#c95dde" });
+    });
+
+    await publishManualTokenColorBook({
+      "23::sister mirela voss": "#c95dde",
+      "23::jacko": "#ef3340"
+    });
+
+    await vi.waitFor(() => {
+      expect(seen.at(-1)).toEqual({
+        "23::sister mirela voss": "#c95dde",
+        "23::jacko": "#ef3340"
+      });
+    });
+
+    unsubscribe();
   });
 
   it("does not attach a late role listener after the consumer unsubscribes", () => {

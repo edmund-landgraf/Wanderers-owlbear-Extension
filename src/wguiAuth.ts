@@ -1,65 +1,16 @@
 import { createClient, type AuthChangeEvent, type SupabaseClient } from "@supabase/supabase-js";
 
-export type WguiTarget = "local" | "prod";
-
-const TARGET_KEY = "wanderers-owlbear-wgui-target";
-
 const localAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzc3NzgwODAwLCJleHAiOjE5MzU1NDcyMDB9.vp6J2oNVQgHMzZG6B6iuTTb_gFPD7jzTyVoxiw0nhf0";
-const prodAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg2NDkyNTU1LCJleHAiOjIxMDE4NTI1NTV9.bhMpateR8zqIG6T5uW_zA5W3GVPh4Lj1I0jHTqafaEo";
 
-const targets: Record<WguiTarget, { appUrl: string; supabaseUrl: string; supabaseKey: string }> = {
-  local: {
-    // 5194 is the reskin. 5193 is the original UI on the same machine. Kong is the shared WG API.
-    appUrl: "http://localhost:5194",
-    supabaseUrl: "http://localhost:8000",
-    supabaseKey: localAnonKey
-  },
-  prod: {
-    // amba.wandersguide.site is the original UI. wgui.wandersguide.site is the reskin.
-    // Both hosts are the same machine and the same WG instance. The popup opens the reskin.
-    appUrl: "https://wgui.wandersguide.site",
-    supabaseUrl: "https://amba.wandersguide.site",
-    supabaseKey: prodAnonKey
-  }
+/** This extension talks only to the local Wanderer's Guide (port 5194) and local Kong. */
+const localProfile = {
+  appUrl: "http://localhost:5194",
+  supabaseUrl: "http://localhost:8000",
+  supabaseKey: localAnonKey
 };
 
-const targetListeners = new Set<(target: WguiTarget) => void>();
-
-function defaultTarget(): WguiTarget {
-  const fromEnv = import.meta.env.VITE_WGUI_TARGET?.trim();
-  if (fromEnv === "local" || fromEnv === "prod") return fromEnv;
-  return import.meta.env.DEV ? "local" : "prod";
-}
-
-export function getWguiTarget(): WguiTarget {
-  try {
-    const stored = localStorage.getItem(TARGET_KEY);
-    if (stored === "local" || stored === "prod") return stored;
-  } catch {
-    // Private mode falls through to the build default.
-  }
-  return defaultTarget();
-}
-
-export function setWguiTarget(target: WguiTarget): void {
-  if (getWguiTarget() === target) return;
-  try {
-    localStorage.setItem(TARGET_KEY, target);
-  } catch {
-    // The in-memory client still follows the requested target for this page load.
-  }
-  client = null;
-  clientTarget = null;
-  targetListeners.forEach((listener) => listener(target));
-}
-
-export function subscribeToWguiTarget(onTarget: (target: WguiTarget) => void): () => void {
-  targetListeners.add(onTarget);
-  return () => targetListeners.delete(onTarget);
-}
-
-export function wguiTargetProfile(target = getWguiTarget()) {
-  return targets[target];
+export function wguiTargetProfile() {
+  return localProfile;
 }
 
 export type WguiSession = {
@@ -77,21 +28,15 @@ export function isWguiBackendConfigured(): boolean {
 }
 
 let client: SupabaseClient | null = null;
-let clientTarget: WguiTarget | null = null;
 const sessionListeners = new Set<(session: WguiSession | null, event: AuthChangeEvent) => void>();
 
-function sessionStorageKey(target = getWguiTarget()) {
-  return `wanderers-owlbear-wgui-session-${target}`;
-}
-
-function legacyAuthStorageKey(target = getWguiTarget()) {
-  return `wanderers-owlbear-wgui-auth-${target}`;
-}
+const SESSION_KEY = "wanderers-owlbear-wgui-session-local";
+const LEGACY_AUTH_KEY = "wanderers-owlbear-wgui-auth-local";
 
 /** Drop a previously copied GoTrue session so this page cannot refresh the site's token. */
-function discardCopiedSupabaseSession(target = getWguiTarget()) {
+function discardCopiedSupabaseSession() {
   try {
-    localStorage.removeItem(legacyAuthStorageKey(target));
+    localStorage.removeItem(LEGACY_AUTH_KEY);
   } catch {
     // Private mode has nothing stored to discard.
   }
@@ -120,14 +65,14 @@ function sessionFromAccessToken(accessToken: string): WguiSession | null {
   };
 }
 
-function readStoredSession(target = getWguiTarget()): WguiSession | null {
+function readStoredSession(): WguiSession | null {
   try {
-    const raw = localStorage.getItem(sessionStorageKey(target));
+    const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { accessToken?: unknown };
     if (typeof parsed.accessToken !== "string") return null;
     const session = sessionFromAccessToken(parsed.accessToken);
-    if (!session) localStorage.removeItem(sessionStorageKey(target));
+    if (!session) localStorage.removeItem(SESSION_KEY);
     return session;
   } catch {
     return null;
@@ -135,13 +80,13 @@ function readStoredSession(target = getWguiTarget()): WguiSession | null {
 }
 
 function writeStoredSession(session: WguiSession) {
-  localStorage.setItem(sessionStorageKey(), JSON.stringify({ accessToken: session.accessToken }));
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ accessToken: session.accessToken }));
   sessionListeners.forEach((listener) => listener(session, "SIGNED_IN"));
 }
 
 function clearStoredSession() {
   try {
-    localStorage.removeItem(sessionStorageKey());
+    localStorage.removeItem(SESSION_KEY);
   } catch {
     // Private mode only had the in-memory copy.
   }
@@ -151,15 +96,13 @@ function clearStoredSession() {
 
 function getSupabase(): SupabaseClient | null {
   if (!isWguiBackendConfigured()) return null;
-  const target = getWguiTarget();
-  if (client && clientTarget === target) return client;
+  if (client) return client;
 
-  discardCopiedSupabaseSession(target);
-  const profile = wguiTargetProfile(target);
-  clientTarget = target;
+  discardCopiedSupabaseSession();
+  const profile = wguiTargetProfile();
   client = createClient(profile.supabaseUrl, profile.supabaseKey, {
     auth: {
-      storageKey: legacyAuthStorageKey(target),
+      storageKey: LEGACY_AUTH_KEY,
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,

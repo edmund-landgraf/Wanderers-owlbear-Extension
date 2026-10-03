@@ -32,6 +32,19 @@ function preferenceKey(campaignScope: string, combatantName: string): string {
   return `${campaignScope}::${normalizeCombatantName(combatantName)}`;
 }
 
+export function readManualTokenColors(): ColorMap {
+  const all = readAll();
+  const colors: ColorMap = {};
+  for (const [key, value] of Object.entries(all)) {
+    if (typeof value === "string") colors[key] = value;
+  }
+  return colors;
+}
+
+export function writeManualTokenColors(colors: ColorMap): void {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(colors));
+}
+
 export function getManualTokenColor(campaignScope: string, combatantName: string): string | null {
   const value = readAll()[preferenceKey(campaignScope, combatantName)];
   return typeof value === "string" ? value : null;

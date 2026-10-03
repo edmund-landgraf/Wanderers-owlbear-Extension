@@ -85,9 +85,9 @@ test.describe("WGUI combat panel", () => {
     await page.goto("/?role=PLAYER");
     await selectSampleEncounter(page);
 
-    const row = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
-    await expect(row).toContainText("Enemy");
-    await expect(row).toContainText("Injured");
+    const row = page.locator(".combatant-row").filter({ hasText: "Enemy" }).first();
+    await expect(row).toContainText("H");
+    await expect(row).not.toContainText("Hadrosaurid");
     await expect(row).not.toContainText("Level 4");
     await expect(row).not.toContainText("40 / 59");
 
@@ -106,8 +106,8 @@ test.describe("WGUI combat panel", () => {
     await expect(page.getByLabel("Campaign", { exact: true })).toBeVisible();
 
     await selectSampleEncounter(page);
-    const row = page.locator(".combatant-row").filter({ hasText: "Hadrosaurid" });
-    await expect(row).toContainText("Injured");
+    const row = page.locator(".combatant-row").filter({ hasText: "Enemy" }).first();
+    await expect(row).not.toContainText("Hadrosaurid");
     await expect(row).not.toContainText("40 / 59");
   });
 
@@ -115,6 +115,7 @@ test.describe("WGUI combat panel", () => {
     await page.goto("/?role=PLAYER");
     await selectSampleEncounter(page);
 
+    await expect(page.locator("body")).not.toContainText("Hadrosaurid");
     await expect(page.locator("body")).not.toContainText("40 / 59");
     await expect(page.locator("body")).not.toContainText("58 / 72");
     await expect(page.locator("body")).not.toContainText("Level 4");

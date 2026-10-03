@@ -10,7 +10,13 @@ import {
   getSceneTokenVisuals,
   getViewerRole,
   isOwlbearAvailable,
-  subscribeToViewerRole
+  publishManualTokenColorBook,
+  publishSharedTokenColors,
+  sharedTokenColorKey,
+  subscribeToManualTokenColorBook,
+  subscribeToSharedTokenColors,
+  subscribeToViewerRole,
+  type SharedTokenColorMap
 } from "./owbear";
 import {
   buildTokenColorMatches,
@@ -19,8 +25,10 @@ import {
 } from "./tokenMatch";
 import {
   getManualTokenColor,
+  readManualTokenColors,
   saveManualTokenColor,
-  TOKEN_COLOR_PALETTE
+  TOKEN_COLOR_PALETTE,
+  writeManualTokenColors
 } from "./tokenPreferences";
 import {
   getPollInterval,
@@ -31,24 +39,18 @@ import {
 import {
   acceptWguiAuthMessage,
   getWguiSession,
-  getWguiTarget,
   isWguiBackendConfigured,
-  setWguiTarget,
   signOutOfWgui,
   startWguiAuth,
   subscribeToWguiSession,
-  subscribeToWguiTarget,
-  type WguiSession,
-  type WguiTarget
+  type WguiSession
 } from "./wguiAuth";
 
-function selectionKey(target: WguiTarget) {
-  return `wanderers-owlbear-selection-${target}`;
-}
+const SELECTION_KEY = "wanderers-owlbear-selection-local";
 
-function readSelection(target: WguiTarget): { campaignId: string; encounterId: string } {
+function readSelection(): { campaignId: string; encounterId: string } {
   try {
-    const raw = localStorage.getItem(selectionKey(target));
+    const raw = localStorage.getItem(SELECTION_KEY);
     if (!raw) return { campaignId: "", encounterId: "" };
     const parsed = JSON.parse(raw) as { campaignId?: unknown; encounterId?: unknown };
     return {
@@ -60,9 +62,9 @@ function readSelection(target: WguiTarget): { campaignId: string; encounterId: s
   }
 }
 
-function writeSelection(target: WguiTarget, campaignId: string, encounterId: string) {
+function writeSelection(campaignId: string, encounterId: string) {
   try {
-    localStorage.setItem(selectionKey(target), JSON.stringify({ campaignId, encounterId }));
+    localStorage.setItem(SELECTION_KEY, JSON.stringify({ campaignId, encounterId }));
   } catch {
     // Private mode keeps the choice for this page load only.
   }
@@ -85,6 +87,20 @@ function hpLabel(combatant: CombatantView) {
     return `${hp.current} / ${hp.max}${temp}`;
   }
   return hp.state ?? "—";
+}
+
+function playerEnemy(role: ViewerRole, combatant: CombatantView) {
+  return role === "PLAYER" && combatant.side === "enemy";
+}
+
+/** WGUI player view shows hidden creatures as initials (Unspooled Vestige → UV). */
+function playerEnemyName(name: string) {
+  const initials = name
+    .split(/\s+/)
+    .map((word) => word.match(/[A-Za-z0-9]/)?.[0] ?? "")
+    .join("")
+    .toUpperCase();
+  return initials || "?";
 }
 
 function TokenAvatar({
@@ -114,28 +130,21 @@ function TokenAvatar({
 }
 
 function TokenColorEditor({
-  combatant,
+  displayName,
   tokenVisual,
   manualColor,
   onColorChange
 }: {
-  combatant: CombatantView;
+  displayName: string;
   tokenVisual?: OwlbearTokenVisual;
   manualColor: string | null;
   onColorChange: (color: string) => void;
 }) {
-  if (tokenVisual?.backgroundColor) {
-    return (
-      <div className="token-match-status matched">
-        <span className="match-dot" />
-        Owlbear name matched · React circle color read from token SVG
-      </div>
-    );
-  }
+  if (tokenVisual?.backgroundColor) return null;
 
   const explanation = tokenVisual
-    ? `Matched ${combatant.name}, but its SVG background color could not be read. Pick the visible map color.`
-    : `No exact Owlbear token match for ${combatant.name}. Pick the visible map color.`;
+    ? `Matched ${displayName}, but its SVG background color could not be read. Pick the visible map color.`
+    : `No exact Owlbear token match for ${displayName}. Pick the visible map color.`;
 
   return (
     <div className="token-color-editor">
@@ -144,14 +153,14 @@ function TokenColorEditor({
         <span className="muted">{explanation}</span>
       </div>
 
-      <div className="token-color-palette" role="group" aria-label={`Token color for ${combatant.name}`}>
+      <div className="token-color-palette" role="group" aria-label={`Token color for ${displayName}`}>
         {TOKEN_COLOR_PALETTE.map((color) => (
           <button
             key={color}
             type="button"
             className={`token-color-choice ${manualColor === color ? "selected" : ""}`}
             style={{ background: color }}
-            aria-label={`Set ${combatant.name} token color to ${color}`}
+            aria-label={`Set ${displayName} token color to ${color}`}
             aria-pressed={manualColor === color}
             onClick={() => onColorChange(color)}
           />
@@ -175,22 +184,23 @@ function DetailPanel({
   onColorChange: (color: string) => void;
 }) {
   const saves = combatant.saves;
-  const enemyFiltered = role === "PLAYER" && combatant.side === "enemy";
+  const enemyFiltered = playerEnemy(role, combatant);
+  const shownName = enemyFiltered ? playerEnemyName(combatant.name) : combatant.name;
 
   return (
     <div className="combatant-detail">
       <div className="detail-grid">
         <div>
           <span>HP</span>
-          <strong>{hpLabel(combatant)}</strong>
+          <strong>{enemyFiltered ? "—" : hpLabel(combatant)}</strong>
         </div>
         <div>
           <span>AC</span>
-          <strong>{combatant.ac ?? "—"}</strong>
+          <strong>{enemyFiltered ? "—" : combatant.ac ?? "—"}</strong>
         </div>
         <div>
           <span>Perception</span>
-          <strong>{signed(combatant.perception)}</strong>
+          <strong>{enemyFiltered ? "—" : signed(combatant.perception)}</strong>
         </div>
       </div>
 
@@ -215,12 +225,14 @@ function DetailPanel({
         )}
       </div>
 
-      <TokenColorEditor
-        combatant={combatant}
-        tokenVisual={tokenVisual}
-        manualColor={manualColor}
-        onColorChange={onColorChange}
-      />
+      {role === "GM" && (
+        <TokenColorEditor
+          displayName={shownName}
+          tokenVisual={tokenVisual}
+          manualColor={manualColor}
+          onColorChange={onColorChange}
+        />
+      )}
     </div>
   );
 }
@@ -242,7 +254,8 @@ function CombatantRow({
   manualColor: string | null;
   onColorChange: (color: string) => void;
 }) {
-  const playerEnemy = role === "PLAYER" && combatant.side === "enemy";
+  const hiddenEnemy = playerEnemy(role, combatant);
+  const shownName = hiddenEnemy ? playerEnemyName(combatant.name) : combatant.name;
   const conditions = combatant.conditions ?? [];
   const automaticColor = tokenVisual?.backgroundColor ?? null;
 
@@ -254,12 +267,12 @@ function CombatantRow({
       <button className="combatant-main" type="button" onClick={onToggle} aria-expanded={open}>
         <div className="initiative">{combatant.initiative ?? "—"}</div>
 
-        <TokenAvatar combatant={combatant} tokenVisual={tokenVisual} manualColor={manualColor} />
+        <TokenAvatar combatant={{ ...combatant, initial: shownName.slice(0, 1), name: shownName }} tokenVisual={tokenVisual} manualColor={manualColor} />
 
         <div className="identity">
-          <strong>{combatant.name}</strong>
+          <strong>{shownName}</strong>
           <span>
-            {playerEnemy
+            {hiddenEnemy
               ? "Enemy"
               : [combatant.level != null ? `Level ${combatant.level}` : null, combatant.side].filter(Boolean).join(" · ")}
           </span>
@@ -274,12 +287,12 @@ function CombatantRow({
 
         <div className="metric">
           <span>AC</span>
-          <strong>{combatant.ac ?? "—"}</strong>
+          <strong>{hiddenEnemy ? "—" : combatant.ac ?? "—"}</strong>
         </div>
 
         <div className="metric hp">
           <span>HP</span>
-          <strong>{hpLabel(combatant)}</strong>
+          <strong>{hiddenEnemy ? "—" : hpLabel(combatant)}</strong>
         </div>
 
         <div className="chevron" aria-hidden="true">{open ? "⌃" : "⌄"}</div>
@@ -298,44 +311,13 @@ function CombatantRow({
   );
 }
 
-function WguiTargetSwitch({
-  target,
-  onChange
-}: {
-  target: WguiTarget;
-  onChange: (target: WguiTarget) => void;
-}) {
-  return (
-    <div className="target-switch" role="group" aria-label="Wanderer's Guide target">
-      <button
-        type="button"
-        className={target === "local" ? "selected" : ""}
-        onClick={() => onChange("local")}
-      >
-        Local
-      </button>
-      <button
-        type="button"
-        className={target === "prod" ? "selected" : ""}
-        onClick={() => onChange("prod")}
-      >
-        Production
-      </button>
-    </div>
-  );
-}
-
 function WguiSignIn({
   busy,
   error,
-  target,
-  onTargetChange,
   onConnect
 }: {
   busy: boolean;
   error: string | null;
-  target: WguiTarget;
-  onTargetChange: (target: WguiTarget) => void;
   onConnect: () => void;
 }) {
   return (
@@ -344,13 +326,9 @@ function WguiSignIn({
         <span className="eyebrow">WGUI CONNECTION</span>
         <strong>Sign in to Wanderer's Guide</strong>
         <span className="muted">
-          {target === "local"
-            ? "Local Windows. Connect uses the session already open on port 5194."
-            : "Production Linux. Connect uses the session already open on wgui.wandersguide.site."}
+          Not authenticated. Click Connect Wanderer's Guide. It only checks the local session on port 5194. Log in on that site in your own tab, then click Connect again.
         </span>
       </div>
-
-      <WguiTargetSwitch target={target} onChange={onTargetChange} />
 
       {error && <div className="picker-error">{error}</div>}
 
@@ -369,7 +347,8 @@ function EncounterPicker({
   loading,
   error,
   onCampaignChange,
-  onEncounterChange
+  onEncounterChange,
+  onClose
 }: {
   campaigns: CampaignOption[];
   encounters: EncounterOption[];
@@ -379,6 +358,7 @@ function EncounterPicker({
   error: string | null;
   onCampaignChange: (id: string) => void;
   onEncounterChange: (id: string) => void;
+  onClose: (() => void) | null;
 }) {
   return (
     <section className="encounter-picker">
@@ -425,6 +405,12 @@ function EncounterPicker({
 
       {loading && <div className="picker-status">Loading WGUI…</div>}
       {error && <div className="picker-error">{error}</div>}
+
+      {onClose && (
+        <button className="picker-close" type="button" onClick={onClose}>
+          Close
+        </button>
+      )}
     </section>
   );
 }
@@ -438,16 +424,21 @@ export default function App() {
   const [tokenColorMatches, setTokenColorMatches] = useState<TokenColorMatch[]>([]);
   const [matchingTokenColors, setMatchingTokenColors] = useState(false);
   const [tokenMatchMessage, setTokenMatchMessage] = useState<string | null>(null);
+  const [tokenMatchLogOpen, setTokenMatchLogOpen] = useState(false);
   const [tokenMatchLog, setTokenMatchLog] = useState<string | null>(null);
   const [tokenMatchFailed, setTokenMatchFailed] = useState(false);
   const [manualColorVersion, setManualColorVersion] = useState(0);
+  const [manualColorsHydrated, setManualColorsHydrated] = useState(false);
+  const [sharedColorsHydrated, setSharedColorsHydrated] = useState(false);
+  const [sharedColors, setSharedColors] = useState<SharedTokenColorMap>({});
+  const savedColorsRef = useRef<SharedTokenColorMap>({});
 
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
   const [encounters, setEncounters] = useState<EncounterOption[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState(() => readSelection(getWguiTarget()).campaignId);
-  const [selectedEncounterId, setSelectedEncounterId] = useState(() => readSelection(getWguiTarget()).encounterId);
+  const [selectedCampaignId, setSelectedCampaignId] = useState(() => readSelection().campaignId);
+  const [selectedEncounterId, setSelectedEncounterId] = useState(() => readSelection().encounterId);
   const [pickerOpen, setPickerOpen] = useState(() => {
-    const saved = readSelection(getWguiTarget());
+    const saved = readSelection();
     return !saved.campaignId || !saved.encounterId;
   });
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -462,7 +453,6 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [wguiTarget, setWguiTargetState] = useState<WguiTarget>(() => getWguiTarget());
 
   const obrAvailable = isOwlbearAvailable();
   const liveCatalogConfigured = isWguiBackendConfigured();
@@ -523,20 +513,7 @@ export default function App() {
       active = false;
       unsubscribe();
     };
-  }, [liveCatalogConfigured, wguiTarget]);
-
-  useEffect(() => {
-    return subscribeToWguiTarget((target) => {
-      const saved = readSelection(target);
-      setWguiTargetState(target);
-      setSelectedCampaignId(saved.campaignId);
-      setSelectedEncounterId(saved.encounterId);
-      setPickerOpen(!saved.campaignId || !saved.encounterId);
-      setWguiSession(null);
-      setAuthError(null);
-      setError(null);
-    });
-  }, []);
+  }, [liveCatalogConfigured]);
 
   useEffect(() => {
     if (!liveCatalogConfigured) return;
@@ -562,7 +539,7 @@ export default function App() {
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [liveCatalogConfigured, wguiTarget]);
+  }, [liveCatalogConfigured]);
 
   useEffect(() => {
     if (!role) return;
@@ -721,8 +698,8 @@ export default function App() {
   }, [role, selectedCampaignId, selectedEncounterId, sessionUserId, selectedCampaign?.name]);
 
   useEffect(() => {
-    writeSelection(wguiTarget, selectedCampaignId, selectedEncounterId);
-  }, [wguiTarget, selectedCampaignId, selectedEncounterId]);
+    writeSelection(selectedCampaignId, selectedEncounterId);
+  }, [selectedCampaignId, selectedEncounterId]);
 
   const combatants = useMemo(
     () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
@@ -752,6 +729,7 @@ export default function App() {
     setTokenColorMatches([]);
     setTokenMatchMessage(null);
     setTokenMatchLog(null);
+    setTokenMatchLogOpen(false);
     setTokenMatchFailed(false);
   }, [role, selectedCampaignId, selectedEncounterId]);
 
@@ -760,9 +738,45 @@ export default function App() {
     return getManualTokenColor(campaignScope, combatant.name);
   };
 
+  useEffect(() => {
+    setSharedColorsHydrated(false);
+    if (!role || !campaignScope) return;
+    return subscribeToSharedTokenColors(campaignScope, (colors) => {
+      savedColorsRef.current = colors;
+      setSharedColors(colors);
+      setSharedColorsHydrated(true);
+    });
+  }, [role, campaignScope]);
+
+  useEffect(() => {
+    return subscribeToManualTokenColorBook((remote) => {
+      const local = readManualTokenColors();
+      const merged = { ...remote, ...local };
+      if (JSON.stringify(merged) !== JSON.stringify(local)) {
+        writeManualTokenColors(merged);
+        setManualColorVersion((value) => value + 1);
+      }
+      setManualColorsHydrated(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!manualColorsHydrated || !sharedColorsHydrated || role !== "GM" || !ready || !state) return;
+    const colors: SharedTokenColorMap = { ...savedColorsRef.current };
+    for (const combatant of combatants) {
+      const automatic = tokenMatches.get(combatant.id)?.backgroundColor;
+      const manual = getManualTokenColor(campaignScope, combatant.name);
+      const color = automatic ?? manual ?? colors[sharedTokenColorKey(combatant.name)];
+      if (color) colors[sharedTokenColorKey(combatant.name)] = color;
+    }
+    savedColorsRef.current = colors;
+    void publishSharedTokenColors(campaignScope, colors);
+  }, [manualColorsHydrated, sharedColorsHydrated, role, ready, state, combatants, tokenMatches, manualColorVersion, campaignScope]);
+
   const saveColor = (combatant: CombatantView, color: string) => {
     saveManualTokenColor(campaignScope, combatant.name, color);
     setManualColorVersion((value) => value + 1);
+    void publishManualTokenColorBook(readManualTokenColors());
   };
 
   const matchTokenColors = async () => {
@@ -771,12 +785,12 @@ export default function App() {
     setMatchingTokenColors(true);
     setTokenMatchMessage(null);
     setTokenMatchLog(null);
+    setTokenMatchLogOpen(false);
     setTokenMatchFailed(false);
 
     try {
       // getSceneTokenVisuals reads CHARACTER item.name (Owlbear Accessibility
-      // -> Name) and samples each SVG before returning, so colors are applied
-      // only after the full token scan has completed.
+      // -> Name) and reads each token color before returning.
       const tokens = await getSceneTokenVisuals(role);
       const matches = buildTokenColorMatches(combatants, tokens);
       const coloredMatches = matches.filter((match) => Boolean(match.backgroundColor));
@@ -787,7 +801,7 @@ export default function App() {
       setTokenMatchLog(
         [
           `Owlbear tokens (${tokens.length}):`,
-          ...tokens.map((token) => `  ${token.name || "(blank)"}`),
+          ...tokens.map((token) => `  ${token.name || "(blank)"}  ${token.backgroundColor ?? "(no color)"}`),
           `Combatants (${combatants.length}):`,
           ...combatants.map((combatant) => `  ${combatant.name || "(blank)"}`)
         ].join("\n")
@@ -883,10 +897,6 @@ export default function App() {
         <WguiSignIn
           busy={authBusy}
           error={authError}
-          target={wguiTarget}
-          onTargetChange={(target) => {
-            void signOutOfWgui().finally(() => setWguiTarget(target));
-          }}
           onConnect={() => {
             setAuthBusy(true);
             setAuthError(null);
@@ -894,7 +904,7 @@ export default function App() {
             authWaitRef.current = window.setTimeout(() => {
               authWaitRef.current = null;
               setAuthBusy(false);
-              setAuthError("Wanderer's Guide opened, but it did not send a session back. Log in there, then try Connect again.");
+              setAuthError("No local session yet. Log in on localhost:5194 in your own tab, then click Connect again.");
             }, 8000);
             startWguiAuth();
           }}
@@ -918,6 +928,7 @@ export default function App() {
             setSelectedEncounterId(id);
             if (id) setPickerOpen(false);
           }}
+          onClose={selectedEncounterId ? () => setPickerOpen(false) : null}
         />
       )}
 
@@ -933,11 +944,21 @@ export default function App() {
               role="status"
               aria-live="polite"
             >
-              {tokenMatchMessage}
+              <span>{tokenMatchMessage}</span>
+              {tokenMatchLog && (
+                <button
+                  className="token-match-toggle"
+                  type="button"
+                  aria-expanded={tokenMatchLogOpen}
+                  onClick={() => setTokenMatchLogOpen((open) => !open)}
+                >
+                  {tokenMatchLogOpen ? "Hide details" : "Show details"}
+                </button>
+              )}
             </div>
           )}
 
-          {role === "GM" && tokenMatchLog && (
+          {role === "GM" && tokenMatchLog && tokenMatchLogOpen && (
             <pre className="token-match-log">{tokenMatchLog}</pre>
           )}
 
@@ -959,9 +980,14 @@ export default function App() {
             )}
 
             {activeCombatants.map((combatant) => {
-              const tokenVisual = tokenMatches.get(combatant.id);
-              const automaticColor = tokenVisual?.backgroundColor ?? null;
-              const manualColor = automaticColor ? null : manualColorFor(combatant);
+              const freshMatch = role === "GM" ? tokenMatches.get(combatant.id) : undefined;
+              const savedColor = sharedColors[sharedTokenColorKey(combatant.name)] ?? null;
+              const tokenVisual = freshMatch?.backgroundColor
+                ? freshMatch
+                : savedColor
+                  ? { id: `saved:${combatant.id}`, name: combatant.name, backgroundColor: savedColor }
+                  : freshMatch;
+              const manualColor = tokenVisual?.backgroundColor ? null : manualColorFor(combatant);
 
               return (
                 <CombatantRow
@@ -990,7 +1016,7 @@ export default function App() {
                 <ul>
                   {outCombatants.map((combatant) => (
                     <li key={combatant.id}>
-                      <span className="out-name">{combatant.name}</span>
+                      <span className="out-name">{playerEnemy(role, combatant) ? playerEnemyName(combatant.name) : combatant.name}</span>
                       <span className="out-tag">{combatant.out === "dead" ? "Dead" : "Incap."}</span>
                     </li>
                   ))}

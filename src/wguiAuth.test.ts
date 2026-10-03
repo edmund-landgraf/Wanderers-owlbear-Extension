@@ -55,8 +55,7 @@ describe("WGUI auth session handoff", () => {
   });
 
   it("ignores messages that are not from the active Wanderer's Guide origin", async () => {
-    const { acceptWguiAuthMessage, getWguiTarget, wguiAuthOrigin } = await loadAuth();
-    expect(getWguiTarget()).toBe("local");
+    const { acceptWguiAuthMessage, wguiAuthOrigin } = await loadAuth();
     expect(wguiAuthOrigin()).toBe("http://localhost:5194");
 
     await expect(
@@ -175,16 +174,9 @@ describe("WGUI auth session handoff", () => {
     expect(opened).not.toBe("http://localhost:5194/");
   });
 
-  it("uses a separate auth store after switching to production", async () => {
-    const { getWguiSession, setWguiTarget, wguiAuthOrigin } = await loadAuth();
-    localStorage.setItem(
-      "wanderers-owlbear-wgui-session-local",
-      JSON.stringify({ accessToken: accessToken() })
-    );
-
-    setWguiTarget("prod");
-
-    expect(wguiAuthOrigin()).toBe("https://wgui.wandersguide.site");
-    await expect(getWguiSession()).resolves.toBeNull();
+  it("stays on the local Wanderer's Guide origin", async () => {
+    const { wguiAuthOrigin, wguiTargetProfile } = await loadAuth();
+    expect(wguiAuthOrigin()).toBe("http://localhost:5194");
+    expect(wguiTargetProfile().supabaseUrl).toBe("http://localhost:8000");
   });
 });

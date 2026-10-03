@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => ({
   loadCampaignOptions: vi.fn(),
   loadEncounterOptions: vi.fn(),
   loadEncounter: vi.fn(),
-  getSceneTokenVisuals: vi.fn()
+  getSceneTokenVisuals: vi.fn(),
+  publishSharedTokenColors: vi.fn(),
+  publishManualTokenColorBook: vi.fn(),
+  manualColorBook: {} as Record<string, string>,
+  sharedColors: {} as Record<string, string>,
+  sharedListener: null as null | ((colors: Record<string, string>) => void)
 }));
 
 vi.mock("./owbear", () => ({
@@ -23,7 +28,21 @@ vi.mock("./owbear", () => ({
       mocks.roleChange = null;
     };
   },
-  getSceneTokenVisuals: mocks.getSceneTokenVisuals
+  getSceneTokenVisuals: mocks.getSceneTokenVisuals,
+  publishSharedTokenColors: mocks.publishSharedTokenColors,
+  publishManualTokenColorBook: mocks.publishManualTokenColorBook,
+  subscribeToManualTokenColorBook: (onColors: (colors: Record<string, string>) => void) => {
+    onColors(mocks.manualColorBook);
+    return () => {};
+  },
+  sharedTokenColorKey: (name: string) => name.trim().toLocaleLowerCase(),
+  subscribeToSharedTokenColors: (_scope: string, onColors: (colors: Record<string, string>) => void) => {
+    mocks.sharedListener = onColors;
+    onColors(mocks.sharedColors);
+    return () => {
+      mocks.sharedListener = null;
+    };
+  }
 }));
 
 vi.mock("./wgui", () => ({
@@ -72,6 +91,11 @@ describe("role-gated encounter loading and selection", () => {
     mocks.loadEncounterOptions.mockReset();
     mocks.loadEncounter.mockReset();
     mocks.getSceneTokenVisuals.mockReset();
+    mocks.publishSharedTokenColors.mockReset();
+    mocks.publishManualTokenColorBook.mockReset();
+    mocks.manualColorBook = {};
+    mocks.sharedColors = {};
+    mocks.sharedListener = null;
 
     mocks.loadCampaignOptions.mockResolvedValue([
       { id: "23", name: "The Price of Prophecy (Production)", relation: "owner" }
@@ -166,7 +190,141 @@ describe("role-gated encounter loading and selection", () => {
       expect(screen.getByTitle("Matched token color: Hadrosaurid")).toBeTruthy();
     });
 
+    const circles = [
+      screen.getByTitle("Matched token color: Kota"),
+      screen.getByTitle("Matched token color: Hadrosaurid")
+    ];
+    const colors = circles.map((circle) => getComputedStyle(circle).backgroundColor);
+    expect(new Set(colors).size).toBe(circles.length);
+    expect(colors).toEqual(["rgb(47, 184, 208)", "rgb(232, 168, 50)"]);
+
     expect(screen.getByText(/Matched 2 of 2: Kota, Hadrosaurid/)).toBeTruthy();
+    await waitFor(() => {
+      expect(mocks.publishSharedTokenColors).toHaveBeenCalledWith("23", {
+        kota: "#2fb8d0",
+        hadrosaurid: "#e8a832"
+      });
+    });
+  });
+
+  it("uses GM-published token colors in the player view", async () => {
+    mocks.sharedColors = { kota: "#2fb8d0" };
+    mocks.loadEncounter.mockResolvedValueOnce({
+      source: "live",
+      lastUpdated: new Date("2026-10-02T18:00:00Z"),
+      snapshot: {
+        encounter: {
+          id: "40",
+          name: "wg combat test",
+          campaignName: "The Price of Prophecy (Production)",
+          round: 1
+        },
+        combatants: [
+          {
+            id: "kota",
+            name: "Kota",
+            side: "ally",
+            initiative: 18,
+            ac: 19,
+            hp: { current: 24, max: 24 },
+            conditions: []
+          }
+        ]
+      }
+    });
+
+    render(<App />);
+    await resolveRole("PLAYER");
+    await selectCampaignAndEncounter();
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Matched token color: Kota")).toBeTruthy();
+    });
+    expect(getComputedStyle(screen.getByTitle("Matched token color: Kota")).backgroundColor).toBe("rgb(47, 184, 208)");
+    expect(screen.queryByRole("button", { name: /Set Kota token color/ })).toBeNull();
+  });
+
+  it("restores matched token colors after a reload", async () => {
+    mocks.sharedColors = { kota: "#2fb8d0", hadrosaurid: "#e8a832" };
+    mocks.loadEncounter.mockResolvedValueOnce({
+      source: "live",
+      lastUpdated: new Date("2026-10-02T18:00:00Z"),
+      snapshot: {
+        encounter: {
+          id: "40",
+          name: "wg combat test",
+          campaignName: "The Price of Prophecy (Production)",
+          round: 1
+        },
+        combatants: [
+          {
+            id: "kota",
+            name: "Kota",
+            side: "ally",
+            initiative: 18,
+            ac: 19,
+            hp: { current: 24, max: 24 },
+            conditions: []
+          },
+          {
+            id: "hadrosaurid",
+            name: "Hadrosaurid",
+            side: "enemy",
+            initiative: 16,
+            ac: 18,
+            hp: { current: 40, max: 59 },
+            conditions: []
+          }
+        ]
+      }
+    });
+
+    render(<App />);
+    await resolveRole("GM");
+    await selectCampaignAndEncounter();
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Matched token color: Kota")).toBeTruthy();
+      expect(screen.getByTitle("Matched token color: Hadrosaurid")).toBeTruthy();
+    });
+    expect(getComputedStyle(screen.getByTitle("Matched token color: Kota")).backgroundColor).toBe("rgb(47, 184, 208)");
+    expect(getComputedStyle(screen.getByTitle("Matched token color: Hadrosaurid")).backgroundColor).toBe("rgb(232, 168, 50)");
+    expect(mocks.getSceneTokenVisuals).not.toHaveBeenCalled();
+  });
+
+  it("restores manual colors from the room after browser storage is empty", async () => {
+    mocks.manualColorBook = { "23::kota": "#6d28d9" };
+    mocks.loadEncounter.mockResolvedValueOnce({
+      source: "live",
+      lastUpdated: new Date("2026-10-02T18:00:00Z"),
+      snapshot: {
+        encounter: {
+          id: "40",
+          name: "wg combat test",
+          campaignName: "The Price of Prophecy (Production)",
+          round: 1
+        },
+        combatants: [
+          {
+            id: "kota",
+            name: "Kota",
+            side: "ally",
+            initiative: 18,
+            ac: 19,
+            hp: { current: 24, max: 24 },
+            conditions: []
+          }
+        ]
+      }
+    });
+
+    render(<App />);
+    await resolveRole("GM");
+    await selectCampaignAndEncounter();
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Manual token color")).toBeTruthy();
+    });
   });
 
   it("passes Player role through the campaign and encounter catalog", async () => {
@@ -218,6 +376,9 @@ describe("role-gated encounter loading and selection", () => {
 
     expect((screen.getByLabelText("Campaign") as HTMLSelectElement).value).toBe("23");
     expect((screen.getByLabelText("Encounter") as HTMLSelectElement).value).toBe("40");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByLabelText("Campaign")).toBeNull();
   });
 
   it("never overlaps polling requests when a feed response is slow", async () => {
