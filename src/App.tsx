@@ -457,6 +457,7 @@ export default function App() {
   wguiSessionRef.current = wguiSession;
   const previousRoleRef = useRef<ViewerRole | null>(null);
   const previousUserIdRef = useRef<string | null | undefined>(undefined);
+  const authWaitRef = useRef<number | null>(null);
   const sessionUserId = wguiSession?.userId ?? null;
   const [authChecked, setAuthChecked] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -542,6 +543,10 @@ export default function App() {
 
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type !== "wgui-owlbear-auth") return;
+      if (authWaitRef.current !== null) {
+        window.clearTimeout(authWaitRef.current);
+        authWaitRef.current = null;
+      }
       void acceptWguiAuthMessage(event)
         .then((session) => {
           if (!session) return;
@@ -790,7 +795,9 @@ export default function App() {
       setTokenMatchMessage(
         coloredNames
           ? `Matched ${coloredMatches.length} of ${combatants.length}: ${coloredNames}`
-          : `Matched 0 of ${combatants.length} combatants from ${tokens.length} Owlbear tokens. Token names did not line up.`
+          : matches.length
+            ? `Matched ${matches.length} of ${combatants.length} by name, but none had a readable token color.`
+            : `Matched 0 of ${combatants.length} combatants from ${tokens.length} Owlbear tokens. Token names did not line up.`
       );
     } catch (cause) {
       setTokenColorMatches([]);
@@ -883,6 +890,12 @@ export default function App() {
           onConnect={() => {
             setAuthBusy(true);
             setAuthError(null);
+            if (authWaitRef.current !== null) window.clearTimeout(authWaitRef.current);
+            authWaitRef.current = window.setTimeout(() => {
+              authWaitRef.current = null;
+              setAuthBusy(false);
+              setAuthError("Wanderer's Guide opened, but it did not send a session back. Log in there, then try Connect again.");
+            }, 8000);
             startWguiAuth();
           }}
         />

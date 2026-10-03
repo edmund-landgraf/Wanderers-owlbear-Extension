@@ -1,4 +1,4 @@
-import { createClient, type AuthChangeEvent, type SupabaseClient, type Session } from "@supabase/supabase-js";
+import { createClient, type AuthChangeEvent, type SupabaseClient } from "@supabase/supabase-js";
 
 export type WguiTarget = "local" | "prod";
 
@@ -78,19 +78,90 @@ export function isWguiBackendConfigured(): boolean {
 
 let client: SupabaseClient | null = null;
 let clientTarget: WguiTarget | null = null;
+const sessionListeners = new Set<(session: WguiSession | null, event: AuthChangeEvent) => void>();
+
+function sessionStorageKey(target = getWguiTarget()) {
+  return `wanderers-owlbear-wgui-session-${target}`;
+}
+
+function legacyAuthStorageKey(target = getWguiTarget()) {
+  return `wanderers-owlbear-wgui-auth-${target}`;
+}
+
+/** Drop a previously copied GoTrue session so this page cannot refresh the site's token. */
+function discardCopiedSupabaseSession(target = getWguiTarget()) {
+  try {
+    localStorage.removeItem(legacyAuthStorageKey(target));
+  } catch {
+    // Private mode has nothing stored to discard.
+  }
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    return JSON.parse(atob(padded)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function sessionFromAccessToken(accessToken: string): WguiSession | null {
+  const payload = decodeJwtPayload(accessToken);
+  const userId = typeof payload?.sub === "string" ? payload.sub : "";
+  const exp = typeof payload?.exp === "number" ? payload.exp : 0;
+  if (!userId || exp * 1000 <= Date.now()) return null;
+  return {
+    accessToken,
+    userId,
+    email: typeof payload?.email === "string" ? payload.email : null
+  };
+}
+
+function readStoredSession(target = getWguiTarget()): WguiSession | null {
+  try {
+    const raw = localStorage.getItem(sessionStorageKey(target));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { accessToken?: unknown };
+    if (typeof parsed.accessToken !== "string") return null;
+    const session = sessionFromAccessToken(parsed.accessToken);
+    if (!session) localStorage.removeItem(sessionStorageKey(target));
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(session: WguiSession) {
+  localStorage.setItem(sessionStorageKey(), JSON.stringify({ accessToken: session.accessToken }));
+  sessionListeners.forEach((listener) => listener(session, "SIGNED_IN"));
+}
+
+function clearStoredSession() {
+  try {
+    localStorage.removeItem(sessionStorageKey());
+  } catch {
+    // Private mode only had the in-memory copy.
+  }
+  discardCopiedSupabaseSession();
+  sessionListeners.forEach((listener) => listener(null, "SIGNED_OUT"));
+}
 
 function getSupabase(): SupabaseClient | null {
   if (!isWguiBackendConfigured()) return null;
   const target = getWguiTarget();
   if (client && clientTarget === target) return client;
 
+  discardCopiedSupabaseSession(target);
   const profile = wguiTargetProfile(target);
   clientTarget = target;
   client = createClient(profile.supabaseUrl, profile.supabaseKey, {
     auth: {
-      storageKey: `wanderers-owlbear-wgui-auth-${target}`,
-      persistSession: true,
-      autoRefreshToken: true,
+      storageKey: legacyAuthStorageKey(target),
+      persistSession: false,
+      autoRefreshToken: false,
       detectSessionInUrl: false,
       lock: async (_name, _timeout, fn) => await fn()
     }
@@ -98,35 +169,16 @@ function getSupabase(): SupabaseClient | null {
   return client;
 }
 
-function toSession(session: Session | null): WguiSession | null {
-  if (!session?.access_token || !session.user?.id) return null;
-  return {
-    accessToken: session.access_token,
-    userId: session.user.id,
-    email: session.user.email
-  };
-}
-
 export async function getWguiSession(): Promise<WguiSession | null> {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return toSession(data.session);
+  if (!isWguiBackendConfigured()) return null;
+  return readStoredSession();
 }
 
 export function subscribeToWguiSession(
   onSession: (session: WguiSession | null, event: AuthChangeEvent) => void
 ): () => void {
-  const supabase = getSupabase();
-  if (!supabase) return () => {};
-
-  const {
-    data: { subscription }
-  } = supabase.auth.onAuthStateChange((event, session) => {
-    onSession(toSession(session), event);
-  });
-
-  return () => subscription.unsubscribe();
+  sessionListeners.add(onSession);
+  return () => sessionListeners.delete(onSession);
 }
 
 export const WGUI_AUTH_MESSAGE = "wgui-owlbear-auth";
@@ -139,9 +191,12 @@ export function isTrustedWguiAuthOrigin(origin: string): boolean {
   return origin === wguiAuthOrigin();
 }
 
-/** Same handoff as AMBA: open the auth page; it posts the existing session back and closes. */
+/**
+ * Open the small handoff page. It reads the session already stored on that origin
+ * and posts the access token back. It must not be the full Wanderer's Guide app.
+ */
 export function startWguiAuth(): void {
-  const url = new URL("/owlbear/auth", wguiTargetProfile().appUrl);
+  const url = new URL("/owlbear/auth/index.html", wguiTargetProfile().appUrl);
   url.searchParams.set("targetOrigin", window.location.origin);
   window.open(url.href, "wgui-owlbear-auth", "popup,width=520,height=420");
 }
@@ -149,27 +204,25 @@ export function startWguiAuth(): void {
 export async function acceptWguiAuthMessage(
   event: MessageEvent
 ): Promise<WguiSession | null> {
-  const supabase = getSupabase();
-  if (!supabase) return null;
+  if (!isWguiBackendConfigured()) return null;
   if (!isTrustedWguiAuthOrigin(event.origin)) return null;
   if (event.data?.type !== WGUI_AUTH_MESSAGE) return null;
 
   const accessToken = event.data.accessToken;
-  const refreshToken = event.data.refreshToken;
-  if (typeof accessToken !== "string" || typeof refreshToken !== "string") return null;
+  if (typeof accessToken !== "string" || !accessToken) return null;
 
-  const { data, error } = await supabase.auth.setSession({
-    access_token: accessToken,
-    refresh_token: refreshToken
-  });
-  if (error) throw new Error(error.message);
-  return toSession(data.session);
+  const session = sessionFromAccessToken(accessToken);
+  if (!session) {
+    throw new Error("Wanderer's Guide session expired. Log in on the site, then connect again.");
+  }
+
+  discardCopiedSupabaseSession();
+  writeStoredSession(session);
+  return session;
 }
 
 export async function signOutOfWgui(): Promise<void> {
-  const supabase = getSupabase();
-  if (!supabase) return;
-  await supabase.auth.signOut({ scope: "local" });
+  clearStoredSession();
 }
 
 type ApiEnvelope<T> = {

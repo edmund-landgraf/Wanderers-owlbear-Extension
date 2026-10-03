@@ -49,6 +49,31 @@ describe("token matching", () => {
     ]);
   });
 
+  it("drops a leading accessibility code and still matches the creature name", () => {
+    const combatants = [{ id: "gwc", name: "Goblin War Chanter", side: "enemy" as const }];
+    const tokens = [{ id: "t1", name: "GWC Goblin War Chanter", backgroundColor: "#c4473a" }];
+
+    expect(matchCombatantsToTokens(combatants, tokens).get("gwc")).toMatchObject({
+      id: "t1",
+      backgroundColor: "#c4473a"
+    });
+  });
+
+  it("matches when a code stays attached and the creature name is a suffix", () => {
+    const combatants = [
+      { id: "gwc", name: "Goblin War Chanter", side: "enemy" as const },
+      { id: "gw", name: "Goblin Warrior (2)", side: "enemy" as const }
+    ];
+    const tokens = [
+      { id: "t1", name: "gwc-goblin war chanter", backgroundColor: "#c4473a" },
+      { id: "t2", name: "GW2 Goblin Warrior", backgroundColor: "#3355aa" }
+    ];
+
+    const matches = matchCombatantsToTokens(combatants, tokens);
+    expect(matches.get("gwc")?.id).toBe("t1");
+    expect(matches.get("gw")?.id).toBe("t2");
+  });
+
   it("matches the Accessibility name after a short prefix", () => {
     const combatants = [
       { id: "s1", name: "Skeletal Soldier (1)", side: "enemy" as const },

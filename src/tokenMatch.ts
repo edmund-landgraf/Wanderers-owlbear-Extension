@@ -24,19 +24,30 @@ export function normalizeCombatantName(value: string): string {
 
 const SUBSCRIPT_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
 
-/** Name used to pair a combatant with a map token. Drops copy numbers, hyphens, and a short Accessibility prefix such as "SS:" or "SS₁". */
+/** Name used to pair a combatant with a map token. Drops copy numbers, hyphens, and leading Accessibility codes such as "GWC", "SS:", or "SS₁". */
 export function tokenMatchKey(value: string): string {
   const withoutBadge = value
     .trim()
-    .replace(/^[A-Z]{1,4}(?:[\u2080-\u2089]|\d)?\s+/, "")
-    .replace(/^[A-Z]{1,8}\s*:\s*/, "");
+    .replace(/^(?:[A-Z]{1,8}[\u2080-\u2089\d]{0,2}(?:\s*:\s*|\s+))+/u, "");
 
   return normalizeCombatantName(withoutBadge)
-    .replace(/^[a-z0-9]{1,8}\s*:\s*/, "")
-    .replace(/[-–—]/g, " ")
+    .replace(/^(?:[a-z0-9]{1,8}\s*:\s*)+/, "")
+    .replace(/[-–—_/]+/g, " ")
     .replace(/\(\s*\d+\s*\)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** True when the token name is the combatant name, or the combatant name with a short leading code. */
+export function tokenNamesAlign(tokenName: string, combatantName: string): boolean {
+  const tokenKey = tokenMatchKey(tokenName);
+  const combatantKey = tokenMatchKey(combatantName);
+  if (!tokenKey || !combatantKey) return false;
+  if (tokenKey === combatantKey) return true;
+
+  const [longer, shorter] =
+    tokenKey.length >= combatantKey.length ? [tokenKey, combatantKey] : [combatantKey, tokenKey];
+  return shorter.includes(" ") && longer.endsWith(` ${shorter}`);
 }
 
 /** Copy number from "SS₁ Name", "SS2 Name", or "Name (2)". */
@@ -80,14 +91,38 @@ export function buildTokenColorMatches(
     tokensByName.set(key, list);
   }
 
+  const claimedTokenIds = new Set<string>();
+
   const matches: TokenColorMatch[] = [];
+  const tokensForKey = new Map<string, OwlbearTokenVisual[]>();
+
+  // Longer combatant names claim a token first, so "Goblin War Chanter" wins
+  // over a shorter name that is only a suffix of the same token.
+  const combatantKeys = [...combatantsByName.keys()].sort((a, b) => b.length - a.length);
+
+  for (const key of combatantKeys) {
+    const exactTokens = (tokensByName.get(key) ?? []).filter((token) => !claimedTokenIds.has(token.id));
+    const looseTokens =
+      exactTokens.length > 0
+        ? []
+        : tokens.filter(
+            (token) =>
+              !claimedTokenIds.has(token.id) &&
+              tokenNamesAlign(token.name, key) &&
+              tokenMatchKey(token.name) !== key
+          );
+    const groupTokens = exactTokens.length > 0 ? exactTokens : looseTokens;
+    if (groupTokens.length === 0) continue;
+    for (const token of groupTokens) claimedTokenIds.add(token.id);
+    tokensForKey.set(key, groupTokens);
+  }
 
   // Owlbear's item.name is the Accessibility -> Name value. Several copies of
   // one creature (Grindylow (1), Grindylow (2)) share a color when every map
   // token of that name sampled the same fill. Numbered badges (SS₁, SS₂) pair
   // with the same copy number even when the fills differ.
   for (const [key, candidates] of combatantsByName) {
-    const groupTokens = tokensByName.get(key) ?? [];
+    const groupTokens = tokensForKey.get(key) ?? [];
     if (groupTokens.length === 0) continue;
 
     const usedTokenIds = new Set<string>();
