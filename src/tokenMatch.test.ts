@@ -64,6 +64,25 @@ describe("token matching", () => {
     expect(matches.get("s2")?.backgroundColor).toBe("#c4473a");
   });
 
+  it("pairs subscript accessibility badges with numbered combatant copies", () => {
+    const combatants = [
+      { id: "s1", name: "Skeletal Soldier (1)", side: "enemy" as const },
+      { id: "s2", name: "Skeletal Soldier (2)", side: "enemy" as const },
+      { id: "jorak", name: "Jorak", side: "ally" as const }
+    ];
+    const tokens = [
+      { id: "ss2", name: "SS₂ Skeletal Soldier", backgroundColor: "#aa3311" },
+      { id: "ss1", name: "SS₁ Skeletal Soldier", backgroundColor: "#11aa33" },
+      { id: "bro", name: "BRO Blue-Ringed Octopus", backgroundColor: "#2255aa" },
+      { id: "uly", name: "Ulysses", backgroundColor: "#6d28d9" }
+    ];
+
+    const matches = matchCombatantsToTokens(combatants, tokens);
+    expect(matches.get("s1")).toMatchObject({ id: "ss1", backgroundColor: "#11aa33" });
+    expect(matches.get("s2")).toMatchObject({ id: "ss2", backgroundColor: "#aa3311" });
+    expect(matches.has("jorak")).toBe(false);
+  });
+
   it("gives every copy of a creature the shared map color", () => {
     const combatants = [
       { id: "octo", name: "Blue Ringed Octopus", side: "enemy" as const },

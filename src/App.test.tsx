@@ -64,6 +64,7 @@ async function selectCampaignAndEncounter() {
 
 describe("role-gated encounter loading and selection", () => {
   beforeEach(() => {
+    localStorage.clear();
     mocks.roleResolver = null;
     mocks.roleChange = null;
 
@@ -178,6 +179,33 @@ describe("role-gated encounter loading and selection", () => {
     await waitFor(() => {
       expect(mocks.loadEncounterOptions).toHaveBeenCalledWith("23", "PLAYER", expect.any(AbortSignal), null);
     });
+  });
+
+  it("restores the last campaign and encounter after reload until Change is used", async () => {
+    localStorage.setItem(
+      "wanderers-owlbear-selection",
+      JSON.stringify({ campaignId: "23", encounterId: "40" })
+    );
+
+    render(<App />);
+    await resolveRole("GM");
+
+    await waitFor(() => {
+      expect(mocks.loadEncounter).toHaveBeenCalledWith(
+        "GM",
+        expect.any(AbortSignal),
+        { campaignId: "23", fightId: "40" },
+        null,
+        "The Price of Prophecy (Production)"
+      );
+    });
+
+    expect(screen.queryByLabelText("Campaign")).toBeNull();
+    expect(screen.getByRole("button", { name: "Change" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect((screen.getByLabelText("Campaign") as HTMLSelectElement).value).toBe("23");
+    expect((screen.getByLabelText("Encounter") as HTMLSelectElement).value).toBe("40");
   });
 
   it("Change reopens the selected campaign and encounter controls", async () => {

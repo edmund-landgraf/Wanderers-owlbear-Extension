@@ -42,6 +42,30 @@ import {
   type WguiTarget
 } from "./wguiAuth";
 
+const SELECTION_KEY = "wanderers-owlbear-selection";
+
+function readSelection(): { campaignId: string; encounterId: string } {
+  try {
+    const raw = localStorage.getItem(SELECTION_KEY);
+    if (!raw) return { campaignId: "", encounterId: "" };
+    const parsed = JSON.parse(raw) as { campaignId?: unknown; encounterId?: unknown };
+    return {
+      campaignId: typeof parsed.campaignId === "string" ? parsed.campaignId : "",
+      encounterId: typeof parsed.encounterId === "string" ? parsed.encounterId : ""
+    };
+  } catch {
+    return { campaignId: "", encounterId: "" };
+  }
+}
+
+function writeSelection(campaignId: string, encounterId: string) {
+  try {
+    localStorage.setItem(SELECTION_KEY, JSON.stringify({ campaignId, encounterId }));
+  } catch {
+    // Private mode keeps the choice for this page load only.
+  }
+}
+
 function signed(value?: number | null) {
   if (value === null || value === undefined) return "—";
   return value >= 0 ? `+${value}` : String(value);
@@ -408,19 +432,25 @@ export default function App() {
   const [tokenColorMatches, setTokenColorMatches] = useState<TokenColorMatch[]>([]);
   const [matchingTokenColors, setMatchingTokenColors] = useState(false);
   const [tokenMatchMessage, setTokenMatchMessage] = useState<string | null>(null);
+  const [tokenMatchLog, setTokenMatchLog] = useState<string | null>(null);
   const [tokenMatchFailed, setTokenMatchFailed] = useState(false);
   const [manualColorVersion, setManualColorVersion] = useState(0);
 
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
   const [encounters, setEncounters] = useState<EncounterOption[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState("");
-  const [selectedEncounterId, setSelectedEncounterId] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(true);
+  const [selectedCampaignId, setSelectedCampaignId] = useState(() => readSelection().campaignId);
+  const [selectedEncounterId, setSelectedEncounterId] = useState(() => readSelection().encounterId);
+  const [pickerOpen, setPickerOpen] = useState(() => {
+    const saved = readSelection();
+    return !saved.campaignId || !saved.encounterId;
+  });
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [wguiSession, setWguiSession] = useState<WguiSession | null>(null);
   const wguiSessionRef = useRef(wguiSession);
   wguiSessionRef.current = wguiSession;
+  const previousRoleRef = useRef<ViewerRole | null>(null);
+  const previousUserIdRef = useRef<string | null | undefined>(undefined);
   const sessionUserId = wguiSession?.userId ?? null;
   const [authChecked, setAuthChecked] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -522,21 +552,35 @@ export default function App() {
     if (!role) return;
     if (liveCatalogConfigured && !wguiSession) return;
 
+    const roleChanged = previousRoleRef.current !== null && previousRoleRef.current !== role;
+    const userChanged = previousUserIdRef.current != null && previousUserIdRef.current !== sessionUserId;
+    previousRoleRef.current = role;
+    previousUserIdRef.current = sessionUserId;
+    if (roleChanged || userChanged) {
+      setSelectedCampaignId("");
+      setSelectedEncounterId("");
+      setPickerOpen(true);
+    }
+
     const controller = new AbortController();
     let active = true;
 
     setCampaigns([]);
     setEncounters([]);
-    setSelectedCampaignId("");
-    setSelectedEncounterId("");
-    setPickerOpen(true);
     setState(null);
     setCatalogError(null);
     setCatalogLoading(true);
 
     loadCampaignOptions(role, controller.signal, wguiSessionRef.current)
       .then((options) => {
-        if (active) setCampaigns(options);
+        if (!active) return;
+        setCampaigns(options);
+        setSelectedCampaignId((current) => {
+          if (!current || options.some((campaign) => campaign.id === current)) return current;
+          setSelectedEncounterId("");
+          setPickerOpen(true);
+          return "";
+        });
       })
       .catch((cause) => {
         if (active && !controller.signal.aborted) {
@@ -563,14 +607,19 @@ export default function App() {
     let active = true;
 
     setEncounters([]);
-    setSelectedEncounterId("");
     setState(null);
     setCatalogError(null);
     setCatalogLoading(true);
 
     loadEncounterOptions(selectedCampaignId, role, controller.signal, wguiSessionRef.current)
       .then((options) => {
-        if (active) setEncounters(options);
+        if (!active) return;
+        setEncounters(options);
+        setSelectedEncounterId((current) => {
+          if (!current || options.some((encounter) => encounter.id === current)) return current;
+          setPickerOpen(true);
+          return "";
+        });
       })
       .catch((cause) => {
         if (active && !controller.signal.aborted) {
@@ -590,6 +639,14 @@ export default function App() {
   useEffect(() => {
     if (!role || !selectedCampaignId || !selectedEncounterId) {
       setState(null);
+      setLoading(false);
+      return;
+    }
+    // A restored selection is ready before getWguiSession resolves. Loading
+    // then throws the sign-in error and leaves the feed unavailable.
+    if (liveCatalogConfigured && !wguiSession) {
+      setState(null);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -635,6 +692,10 @@ export default function App() {
     };
   }, [role, selectedCampaignId, selectedEncounterId, sessionUserId, selectedCampaign?.name]);
 
+  useEffect(() => {
+    writeSelection(selectedCampaignId, selectedEncounterId);
+  }, [selectedCampaignId, selectedEncounterId]);
+
   const combatants = useMemo(
     () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
     [state]
@@ -662,6 +723,7 @@ export default function App() {
   useEffect(() => {
     setTokenColorMatches([]);
     setTokenMatchMessage(null);
+    setTokenMatchLog(null);
     setTokenMatchFailed(false);
   }, [role, selectedCampaignId, selectedEncounterId]);
 
@@ -680,6 +742,7 @@ export default function App() {
 
     setMatchingTokenColors(true);
     setTokenMatchMessage(null);
+    setTokenMatchLog(null);
     setTokenMatchFailed(false);
 
     try {
@@ -693,6 +756,14 @@ export default function App() {
 
       setTokenColorMatches(matches);
       setTokenMatchFailed(false);
+      setTokenMatchLog(
+        [
+          `Owlbear tokens (${tokens.length}):`,
+          ...tokens.map((token) => `  ${token.name || "(blank)"}`),
+          `Combatants (${combatants.length}):`,
+          ...combatants.map((combatant) => `  ${combatant.name || "(blank)"}`)
+        ].join("\n")
+      );
       setTokenMatchMessage(
         coloredNames
           ? `Matched ${coloredMatches.length} of ${combatants.length}: ${coloredNames}`
@@ -701,6 +772,7 @@ export default function App() {
     } catch (cause) {
       setTokenColorMatches([]);
       setTokenMatchFailed(true);
+      setTokenMatchLog(cause instanceof Error ? cause.stack ?? cause.message : "Unable to match Owlbear token colors.");
       setTokenMatchMessage(
         cause instanceof Error ? cause.message : "Unable to match Owlbear token colors."
       );
@@ -827,6 +899,10 @@ export default function App() {
             >
               {tokenMatchMessage}
             </div>
+          )}
+
+          {role === "GM" && tokenMatchLog && (
+            <pre className="token-match-log">{tokenMatchLog}</pre>
           )}
 
           <section className="table-head" aria-hidden="true">

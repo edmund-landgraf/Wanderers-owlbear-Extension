@@ -269,6 +269,19 @@ h1 {
   opacity: 0.6;
 }
 
+.token-match-log {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #c5d0c2;
+  background: #101612;
+  border-bottom: 1px solid #243028;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .token-match-banner {
   margin: 8px 12px 0;
   padding: 8px 10px;
