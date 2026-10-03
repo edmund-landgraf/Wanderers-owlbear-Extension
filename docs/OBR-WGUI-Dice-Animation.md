@@ -10,6 +10,8 @@ The preferred design is:
 
 > **WGUI determines the roll result. The Owlbear extension receives a small roll event and recreates the existing WGUI 3D dice animation locally.**
 
+The renderer is this extension's full-screen `/dice-overlay`, using `open-dice-dnd` with each die's `rolled` face set from WGUI. The installed Owlbear Dice extension is not used. Its physics roll cannot be told which face to land on.
+
 The animation itself should **not** normally be rendered into a temporary video, uploaded, stored as an Owlbear scene asset, or streamed frame-by-frame.
 
 ---

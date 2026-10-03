@@ -42,7 +42,7 @@ export type CombatantView = {
   } | null;
   conditions?: string[];
   active?: boolean;
-  out?: "dead" | "incapacitated" | null;
+  out?: "dead" | "incapacitated" | "bench" | null;
 };
 
 export type EncounterSnapshot = {

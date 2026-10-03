@@ -23,6 +23,7 @@ import {
   type OwlbearTokenVisual,
   type TokenColorMatch
 } from "./tokenMatch";
+import { tokenGlyphs, tokenLabelFromName } from "./tokenLabel";
 import {
   getManualTokenColor,
   readManualTokenColors,
@@ -30,6 +31,8 @@ import {
   TOKEN_COLOR_PALETTE,
   writeManualTokenColors
 } from "./tokenPreferences";
+import { compareCombatants } from "./combatOrder";
+import { startDiceWatch } from "./dice/diceWatch";
 import {
   getPollInterval,
   loadCampaignOptions,
@@ -103,6 +106,36 @@ function playerEnemyName(name: string) {
   return initials || "?";
 }
 
+function TokenGlyphs({ label }: { label: string }) {
+  const glyphs = tokenGlyphs(label);
+  if (glyphs.length <= 1) {
+    return <span className="token-glyph-primary">{glyphs[0]}</span>;
+  }
+
+  const stacked = glyphs.length >= 4;
+  if (stacked) {
+    return (
+      <span className="token-glyphs token-glyphs-stacked">
+        <span className="token-glyph-primary">{glyphs[0]}</span>
+        <span className="token-glyph-stack">
+          <span>{glyphs[1]}</span>
+          <span>{glyphs[2]}</span>
+        </span>
+        <span className="token-glyph-subscript">{glyphs[3]}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="token-glyphs">
+      <span className="token-glyph-primary">{glyphs[0]}</span>
+      {glyphs.slice(1).map((glyph, index) => (
+        <span className="token-glyph-secondary" key={`${glyph}-${index}`}>{glyph}</span>
+      ))}
+    </span>
+  );
+}
+
 function TokenAvatar({
   combatant,
   tokenVisual,
@@ -112,7 +145,7 @@ function TokenAvatar({
   tokenVisual?: OwlbearTokenVisual;
   manualColor: string | null;
 }) {
-  const initial = (combatant.initial || combatant.name.slice(0, 1) || "?").toUpperCase();
+  const label = tokenLabelFromName(combatant.name, { singleLetter: combatant.side !== "enemy" });
   const automaticColor = tokenVisual?.backgroundColor ?? null;
   const background = automaticColor ?? manualColor ?? "#334155";
   const mode = automaticColor ? "Matched token color" : manualColor ? "Manual token color" : "No token color";
@@ -124,7 +157,7 @@ function TokenAvatar({
       title={tokenVisual ? `${mode}: ${tokenVisual.name}` : mode}
       aria-hidden="true"
     >
-      {initial}
+      <TokenGlyphs label={label} />
     </div>
   );
 }
@@ -142,17 +175,13 @@ function TokenColorEditor({
 }) {
   if (tokenVisual?.backgroundColor) return null;
 
-  const explanation = tokenVisual
-    ? `Matched ${displayName}, but its SVG background color could not be read. Pick the visible map color.`
-    : `No exact Owlbear token match for ${displayName}. Pick the visible map color.`;
-
   return (
-    <div className="token-color-editor">
-      <div className="token-color-copy">
-        <span className="detail-label">Token color</span>
-        <span className="muted">{explanation}</span>
-      </div>
-
+    <div className="token-color-editor" title={
+      tokenVisual
+        ? `Matched ${displayName}, but its SVG background color could not be read. Pick the visible map color.`
+        : `No exact Owlbear token match for ${displayName}. Pick the visible map color.`
+    }>
+      <span className="detail-label">Color</span>
       <div className="token-color-palette" role="group" aria-label={`Token color for ${displayName}`}>
         {TOKEN_COLOR_PALETTE.map((color) => (
           <button
@@ -186,55 +215,98 @@ function DetailPanel({
   const saves = combatant.saves;
   const enemyFiltered = playerEnemy(role, combatant);
   const shownName = enemyFiltered ? playerEnemyName(combatant.name) : combatant.name;
+  const hide = (value: string) => (enemyFiltered ? "—" : value);
+  const temp = combatant.hp?.temp ?? 0;
+  const conditions = combatant.conditions ?? [];
 
   return (
     <div className="combatant-detail">
-      <div className="detail-grid">
+      <div className="detail-table">
         <div>
-          <span>HP</span>
-          <strong>{enemyFiltered ? "—" : hpLabel(combatant)}</strong>
-        </div>
-        <div>
-          <span>AC</span>
-          <strong>{enemyFiltered ? "—" : combatant.ac ?? "—"}</strong>
+          <span>Per</span>
+          <strong>{hide(signed(combatant.perception))}</strong>
         </div>
         <div>
-          <span>Perception</span>
-          <strong>{enemyFiltered ? "—" : signed(combatant.perception)}</strong>
+          <span>Fort</span>
+          <strong>{hide(signed(saves?.fortitude))}</strong>
         </div>
-      </div>
-
-      {!enemyFiltered && saves && (
-        <div className="save-strip">
-          <span>FORT <strong>{signed(saves.fortitude)}</strong></span>
-          <span>REF <strong>{signed(saves.reflex)}</strong></span>
-          <span>WILL <strong>{signed(saves.will)}</strong></span>
+        <div>
+          <span>Ref</span>
+          <strong>{hide(signed(saves?.reflex))}</strong>
         </div>
-      )}
-
-      <div className="detail-conditions">
-        <span className="detail-label">Conditions</span>
-        {combatant.conditions?.length ? (
-          <div className="condition-list">
-            {combatant.conditions.map((condition, index) => (
-              <span className="condition-chip" key={`${condition}-${index}`}>{condition}</span>
-            ))}
-          </div>
-        ) : (
-          <span className="muted">None</span>
+        <div>
+          <span>Will</span>
+          <strong>{hide(signed(saves?.will))}</strong>
+        </div>
+        <div>
+          <span>Temp</span>
+          <strong>{hide(String(temp))}</strong>
+        </div>
+        <div className="detail-conditions">
+          <span>Conditions</span>
+          {conditions.length ? (
+            <div className="condition-list">
+              {conditions.map((condition, index) => (
+                <span className="condition-chip" key={`${condition}-${index}`}>{condition}</span>
+              ))}
+            </div>
+          ) : (
+            <strong className="muted">None</strong>
+          )}
+        </div>
+        {role === "GM" && (
+          <TokenColorEditor
+            displayName={shownName}
+            tokenVisual={tokenVisual}
+            manualColor={manualColor}
+            onColorChange={onColorChange}
+          />
         )}
       </div>
-
-      {role === "GM" && (
-        <TokenColorEditor
-          displayName={shownName}
-          tokenVisual={tokenVisual}
-          manualColor={manualColor}
-          onColorChange={onColorChange}
-        />
-      )}
     </div>
   );
+}
+
+type ListSize = "small" | "large";
+type RowDensity = "compact" | "regular";
+
+const LIST_SIZE_KEY = "wanderers.listSize";
+const ROW_DENSITY_KEY = "wanderers.rowDensity";
+const LIST_EXPANDED_KEY = "wanderers.listExpanded";
+const LIST_SIZES = [
+  { id: "small", label: "S", title: "Small type" },
+  { id: "large", label: "L", title: "Large type" }
+] as const;
+const ROW_DENSITIES = [
+  { id: "compact", label: "C", title: "Compact rows" },
+  { id: "regular", label: "R", title: "Regular row height" }
+] as const;
+
+function readListSize(): ListSize {
+  try {
+    return localStorage.getItem(LIST_SIZE_KEY) === "large" ? "large" : "small";
+  } catch {
+    return "small";
+  }
+}
+
+function readRowDensity(): RowDensity {
+  try {
+    return localStorage.getItem(ROW_DENSITY_KEY) === "compact" ? "compact" : "regular";
+  } catch {
+    return "regular";
+  }
+}
+
+function readListExpanded(): boolean {
+  try {
+    const stored = localStorage.getItem(LIST_EXPANDED_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+    return localStorage.getItem(LIST_SIZE_KEY) === "expanded";
+  } catch {
+    return false;
+  }
 }
 
 function CombatantRow({
@@ -267,7 +339,7 @@ function CombatantRow({
       <button className="combatant-main" type="button" onClick={onToggle} aria-expanded={open}>
         <div className="initiative">{combatant.initiative ?? "—"}</div>
 
-        <TokenAvatar combatant={{ ...combatant, initial: shownName.slice(0, 1), name: shownName }} tokenVisual={tokenVisual} manualColor={manualColor} />
+        <TokenAvatar combatant={combatant} tokenVisual={tokenVisual} manualColor={manualColor} />
 
         <div className="identity">
           <strong>{shownName}</strong>
@@ -420,6 +492,9 @@ export default function App() {
   const [state, setState] = useState<EncounterSourceState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [listSize, setListSize] = useState<ListSize>(readListSize);
+  const [rowDensity, setRowDensity] = useState<RowDensity>(readRowDensity);
+  const [listExpanded, setListExpanded] = useState(readListExpanded);
   const [loading, setLoading] = useState(false);
   const [tokenColorMatches, setTokenColorMatches] = useState<TokenColorMatch[]>([]);
   const [matchingTokenColors, setMatchingTokenColors] = useState(false);
@@ -458,6 +533,8 @@ export default function App() {
   const liveCatalogConfigured = isWguiBackendConfigured();
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
   const selectedEncounter = encounters.find((option) => option.id === selectedEncounterId);
+
+  useEffect(() => startDiceWatch(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -702,11 +779,12 @@ export default function App() {
   }, [selectedCampaignId, selectedEncounterId]);
 
   const combatants = useMemo(
-    () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
+    () => [...(state?.snapshot.combatants ?? [])].sort(compareCombatants),
     [state]
   );
 
-  const activeCombatants = combatants.filter((combatant) => combatant.out !== "dead" && combatant.out !== "incapacitated");
+  const activeCombatants = combatants.filter((combatant) => combatant.out !== "dead" && combatant.out !== "incapacitated" && combatant.out !== "bench");
+  const benchCombatants = combatants.filter((combatant) => combatant.out === "bench");
   const outCombatants = combatants.filter((combatant) => combatant.out === "dead" || combatant.out === "incapacitated");
 
   const tokenMatches = useMemo(() => {
@@ -936,6 +1014,73 @@ export default function App() {
         <>
           <nav className="tabs" aria-label="Encounter sections">
             <button className="tab active">COMBAT</button>
+            <div className="list-controls">
+              <div className="size-toggle" role="radiogroup" aria-label="Row height">
+                {ROW_DENSITIES.map((density) => (
+                  <button
+                    key={density.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={rowDensity === density.id}
+                    className={rowDensity === density.id ? "selected" : ""}
+                    title={density.title}
+                    onClick={() => {
+                      setRowDensity(density.id);
+                      try {
+                        localStorage.setItem(ROW_DENSITY_KEY, density.id);
+                      } catch {
+                        // Preference is optional when storage is blocked.
+                      }
+                    }}
+                  >
+                    {density.label}
+                  </button>
+                ))}
+              </div>
+              <div className="size-toggle" role="radiogroup" aria-label="Type size">
+                {LIST_SIZES.map((size) => (
+                  <button
+                    key={size.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={listSize === size.id}
+                    className={listSize === size.id ? "selected" : ""}
+                    title={size.title}
+                    onClick={() => {
+                      setListSize(size.id);
+                      try {
+                        localStorage.setItem(LIST_SIZE_KEY, size.id);
+                      } catch {
+                        // Preference is optional when storage is blocked.
+                      }
+                    }}
+                  >
+                    {size.label}
+                  </button>
+                ))}
+              </div>
+              <div className="size-toggle">
+                <button
+                  type="button"
+                  aria-pressed={listExpanded}
+                  className={listExpanded ? "selected" : ""}
+                  title="Expanded"
+                  onClick={() => {
+                    setListExpanded((current) => {
+                      const next = !current;
+                      try {
+                        localStorage.setItem(LIST_EXPANDED_KEY, next ? "1" : "0");
+                      } catch {
+                        // Preference is optional when storage is blocked.
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  X
+                </button>
+              </div>
+            </div>
           </nav>
 
           {role === "GM" && tokenMatchMessage && (
@@ -962,7 +1107,7 @@ export default function App() {
             <pre className="token-match-log">{tokenMatchLog}</pre>
           )}
 
-          <section className="table-head" aria-hidden="true">
+          <section className={`table-head${listSize === "large" ? " is-large" : ""}${rowDensity === "compact" ? " is-compact" : ""}`} aria-hidden="true">
             <span>INIT</span>
             <span></span>
             <span>COMBATANT</span>
@@ -972,7 +1117,7 @@ export default function App() {
             <span></span>
           </section>
 
-          <section className="combat-list" aria-live="polite">
+          <section className={`combat-list${listSize === "large" ? " is-large" : ""}${rowDensity === "compact" ? " is-compact" : ""}`} aria-live="polite">
             {loading && !state && <div className="empty-state">Loading encounter…</div>}
 
             {!loading && activeCombatants.length === 0 && !error && (
@@ -994,7 +1139,7 @@ export default function App() {
                   key={combatant.id}
                   combatant={combatant}
                   role={role}
-                  open={openId === combatant.id}
+                  open={listExpanded || openId === combatant.id}
                   onToggle={() => setOpenId((current) => current === combatant.id ? null : combatant.id)}
                   tokenVisual={tokenVisual}
                   manualColor={manualColor}
@@ -1003,6 +1148,26 @@ export default function App() {
               );
             })}
           </section>
+
+          {state && (
+            <section className="out-bucket" aria-label="On the bench">
+              <div className="out-bucket-label">
+                <span>On the bench</span>
+                <span>{benchCombatants.length}</span>
+              </div>
+              {benchCombatants.length === 0 ? (
+                <p className="out-empty">No one is sitting this fight out.</p>
+              ) : (
+                <ul>
+                  {benchCombatants.map((combatant) => (
+                    <li key={combatant.id}>
+                      <span className="out-name">{playerEnemy(role, combatant) ? playerEnemyName(combatant.name) : combatant.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           {state && (
             <section className="out-bucket" aria-label="Dead or incapacitated">

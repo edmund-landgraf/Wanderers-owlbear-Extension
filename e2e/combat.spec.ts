@@ -75,9 +75,9 @@ test.describe("WGUI combat panel", () => {
     await expect(row).toContainText("Frightened 1");
 
     await row.getByRole("button").click();
-    await expect(row).toContainText("FORT");
+    await expect(row).toContainText("Fort");
     await expect(row).toContainText("+11");
-    await expect(row).toContainText("Perception");
+    await expect(row).toContainText("Per");
     await expect(row).toContainText("+8");
   });
 

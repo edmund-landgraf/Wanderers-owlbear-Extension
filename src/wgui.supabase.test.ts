@@ -98,6 +98,41 @@ describe("authenticated WGUI catalog", () => {
         return [];
       }
 
+      if (name === "wgui-ext-find-encounter" && body.campaign_id === 99 && body.id === 42) {
+        return [{
+          id: 42,
+          campaign_id: 99,
+          name: "Bench test",
+          combatants: {
+            list: [
+              {
+                _id: "in-fight",
+                type: "CHARACTER",
+                ally: true,
+                character: 9,
+                initiative: 12,
+                data: { id: 9, name: "In Fight", level: 3 }
+              },
+              {
+                _id: "benched-wolf",
+                type: "CREATURE",
+                ally: false,
+                out: "BENCH",
+                initiative: 8,
+                creature: { id: 77, name: "Waiting Wolf", level: 2 }
+              }
+            ]
+          }
+        }];
+      }
+
+      if (name === "wgui-ext-find-campaign-characters" && body.campaign_id === 99) {
+        return [
+          { id: 9, name: "In Fight", level: 3 },
+          { id: 10, name: "On Bench Hero", level: 4 }
+        ];
+      }
+
       throw new Error(`Unexpected mock call: ${name} ${JSON.stringify(body)}`);
     });
   });
@@ -194,6 +229,25 @@ describe("authenticated WGUI catalog", () => {
       ac: 17,
       hp: { current: 18, max: 24, temp: 0 }
     });
+  });
+
+  it("keeps benched combatants and campaign characters who are not in the fight", async () => {
+    const result = await loadEncounter(
+      "GM",
+      undefined,
+      { campaignId: "99", fightId: "42" },
+      session,
+      "Bench campaign"
+    );
+
+    expect(result.snapshot.combatants.map((combatant) => ({
+      name: combatant.name,
+      out: combatant.out ?? null
+    }))).toEqual([
+      { name: "In Fight", out: null },
+      { name: "Waiting Wolf", out: "bench" },
+      { name: "On Bench Hero", out: "bench" }
+    ]);
   });
 
   it("requires a WGUI session when the real backend is configured", async () => {

@@ -11,6 +11,7 @@ import type {
   EncounterSourceState,
   ViewerRole
 } from "./types";
+import { tokenLabelFromName } from "./tokenLabel";
 
 const encounterUrl = import.meta.env.VITE_WGUI_ENCOUNTER_URL?.trim();
 const campaignsUrl = import.meta.env.VITE_WGUI_CAMPAIGNS_URL?.trim();
@@ -56,7 +57,7 @@ type RawCombatant = {
   creature?: RawEntity | null;
   data?: RawEntity | null;
   active?: boolean;
-  out?: "dead" | "incapacitated" | null;
+  out?: "dead" | "incapacitated" | "bench" | string | null;
 };
 
 type RawEncounter = {
@@ -195,6 +196,15 @@ function numericStat(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function combatantOut(value: unknown): "dead" | "incapacitated" | "bench" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "dead") return "dead";
+  if (normalized === "incapacitated" || normalized === "incap") return "incapacitated";
+  if (normalized === "bench" || normalized === "benched") return "bench";
+  return null;
+}
+
 function entityToCombatantView(
   combatant: RawCombatant,
   entity: RawEntity | null | undefined
@@ -210,14 +220,16 @@ function entityToCombatantView(
   const hpMax = numericStat(stats?.hp_max) ?? hpCurrent;
   const hpTemp = numericStat(entity?.hp_temp);
 
+  const side = combatant.ally ? "ally" : combatant.type === "CHARACTER" ? "neutral" : "enemy";
+
   return {
     id: combatant._id || String(combatant.id ?? `${combatant.type ?? "combatant"}-${name}`),
     characterId: combatant.type === "CHARACTER" && combatant.character != null
       ? String(combatant.character)
       : null,
     name,
-    initial: name.slice(0, 1).toUpperCase(),
-    side: combatant.ally ? "ally" : combatant.type === "CHARACTER" ? "neutral" : "enemy",
+    initial: tokenLabelFromName(name, { singleLetter: side !== "enemy" }),
+    side,
     level: numericStat(entity?.level),
     initiative: numericStat(combatant.initiative),
     hp: hpCurrent !== null || hpMax !== null
@@ -232,7 +244,7 @@ function entityToCombatantView(
     },
     conditions: conditionLabels(entity),
     active: combatant.active === true,
-    out: combatant.out === "dead" || combatant.out === "incapacitated" ? combatant.out : null
+    out: combatantOut(combatant.out)
   };
 }
 
@@ -257,6 +269,21 @@ export function normalizeWguiEncounter(
     const normalized = entityToCombatantView(combatant, entity);
     return normalized ? [normalized] : [];
   });
+
+  const inEncounter = new Set(
+    combatants.flatMap((combatant) => combatant.characterId ? [combatant.characterId] : [])
+  );
+  for (const character of roster) {
+    const id = asStringId(character.id);
+    if (!id || inEncounter.has(id)) continue;
+    const name = typeof character.name === "string" ? character.name.trim() : "";
+    if (!name) continue;
+    const benched = entityToCombatantView(
+      { _id: `bench-${id}`, type: "CHARACTER", ally: true, character: id, out: "bench" },
+      character
+    );
+    if (benched) combatants.push(benched);
+  }
 
   return {
     encounter: {
@@ -527,7 +554,8 @@ function projectEncounterForRole(
         initiative: combatant.initiative,
         hp: { state },
         conditions: combatant.conditions,
-        active: combatant.active
+        active: combatant.active,
+        out: combatant.out
       };
     })
   };
@@ -587,6 +615,28 @@ export async function loadEncounter(
     source: "live",
     lastUpdated: new Date()
   };
+}
+
+/** Raw encounter `meta_data`, including dice logs when WGUI already returns them. */
+export async function loadEncounterDiceMeta(
+  selection: EncounterSelection,
+  session: WguiSession
+): Promise<unknown | null> {
+  if (!isWguiBackendConfigured()) return null;
+
+  const campaignId = Number(selection.campaignId);
+  const encounterId = Number(selection.fightId);
+  if (!Number.isFinite(campaignId) || !Number.isFinite(encounterId)) return null;
+
+  const rows = await invokeWguiFunction<RawEncounter | RawEncounter[]>(
+    "wgui-ext-find-encounter",
+    { campaign_id: campaignId, id: encounterId },
+    session.accessToken
+  );
+  const encounter = asList(rows).find(
+    (row) => asStringId(row.id ?? row.encounter_id ?? row.fight_id) === selection.fightId
+  );
+  return encounter?.meta_data ?? null;
 }
 
 export function getPollInterval(): number {
