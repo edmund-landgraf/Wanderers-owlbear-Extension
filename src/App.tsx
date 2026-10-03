@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CampaignOption,
   CombatantView,
@@ -29,12 +29,17 @@ import {
   loadEncounterOptions
 } from "./wgui";
 import {
+  acceptWguiAuthMessage,
   getWguiSession,
+  getWguiTarget,
   isWguiBackendConfigured,
-  signInToWgui,
+  setWguiTarget,
   signOutOfWgui,
+  startWguiAuth,
   subscribeToWguiSession,
-  type WguiSession
+  subscribeToWguiTarget,
+  type WguiSession,
+  type WguiTarget
 } from "./wguiAuth";
 
 function signed(value?: number | null) {
@@ -263,50 +268,65 @@ function CombatantRow({
   );
 }
 
+function WguiTargetSwitch({
+  target,
+  onChange
+}: {
+  target: WguiTarget;
+  onChange: (target: WguiTarget) => void;
+}) {
+  return (
+    <div className="target-switch" role="group" aria-label="Wanderer's Guide target">
+      <button
+        type="button"
+        className={target === "local" ? "selected" : ""}
+        onClick={() => onChange("local")}
+      >
+        Local
+      </button>
+      <button
+        type="button"
+        className={target === "prod" ? "selected" : ""}
+        onClick={() => onChange("prod")}
+      >
+        Production
+      </button>
+    </div>
+  );
+}
+
 function WguiSignIn({
   busy,
   error,
-  onSubmit
+  target,
+  onTargetChange,
+  onConnect
 }: {
   busy: boolean;
   error: string | null;
-  onSubmit: (email: string, password: string) => void;
+  target: WguiTarget;
+  onTargetChange: (target: WguiTarget) => void;
+  onConnect: () => void;
 }) {
   return (
     <section className="encounter-picker auth-picker">
       <div className="picker-heading">
         <span className="eyebrow">WGUI CONNECTION</span>
         <strong>Sign in to Wanderer's Guide</strong>
-        <span className="muted">Use the same account as WGUI. This session is stored only in this extension origin.</span>
+        <span className="muted">
+          {target === "local"
+            ? "Local Windows. Connect uses the session already open on port 5194."
+            : "Production Linux. Connect uses the session already open on wgui.wandersguide.site."}
+        </span>
       </div>
 
-      <form
-        className="auth-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          onSubmit(
-            String(data.get("email") ?? "").trim(),
-            String(data.get("password") ?? "")
-          );
-        }}
-      >
-        <label className="picker-field">
-          <span>Email</span>
-          <input name="email" type="email" autoComplete="username" required />
-        </label>
+      <WguiTargetSwitch target={target} onChange={onTargetChange} />
 
-        <label className="picker-field">
-          <span>Password</span>
-          <input name="password" type="password" autoComplete="current-password" required />
-        </label>
+      {error && <div className="picker-error">{error}</div>}
 
-        {error && <div className="picker-error">{error}</div>}
-
-        <button className="auth-submit" type="submit" disabled={busy}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+      <button className="auth-submit" type="button" disabled={busy} onClick={onConnect}>
+        {busy ? "Opening connection window…" : "Connect Wanderer's Guide"}
+      </button>
     </section>
   );
 }
@@ -388,6 +408,7 @@ export default function App() {
   const [tokenColorMatches, setTokenColorMatches] = useState<TokenColorMatch[]>([]);
   const [matchingTokenColors, setMatchingTokenColors] = useState(false);
   const [tokenMatchMessage, setTokenMatchMessage] = useState<string | null>(null);
+  const [tokenMatchFailed, setTokenMatchFailed] = useState(false);
   const [manualColorVersion, setManualColorVersion] = useState(0);
 
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
@@ -398,9 +419,13 @@ export default function App() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [wguiSession, setWguiSession] = useState<WguiSession | null>(null);
+  const wguiSessionRef = useRef(wguiSession);
+  wguiSessionRef.current = wguiSession;
+  const sessionUserId = wguiSession?.userId ?? null;
   const [authChecked, setAuthChecked] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [wguiTarget, setWguiTargetState] = useState<WguiTarget>(() => getWguiTarget());
 
   const obrAvailable = isOwlbearAvailable();
   const liveCatalogConfigured = isWguiBackendConfigured();
@@ -439,19 +464,59 @@ export default function App() {
         if (active) setAuthChecked(true);
       });
 
-    const unsubscribe = subscribeToWguiSession((session) => {
-      if (active) {
-        setWguiSession(session);
-        setAuthChecked(true);
-        setAuthError(null);
+    const unsubscribe = subscribeToWguiSession((session, event) => {
+      if (!active) return;
+      setAuthChecked(true);
+      if (event === "SIGNED_OUT") {
+        setWguiSession(null);
+        return;
       }
+      // Focus recovery re-emits SIGNED_IN for the session already on screen.
+      // A null event that is not a sign-out must not drop that login.
+      if (!session) return;
+      setWguiSession((current) =>
+        current?.userId === session.userId && current.accessToken === session.accessToken
+          ? current
+          : session
+      );
+      setAuthError(null);
     });
 
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [liveCatalogConfigured]);
+  }, [liveCatalogConfigured, wguiTarget]);
+
+  useEffect(() => {
+    return subscribeToWguiTarget((target) => {
+      setWguiTargetState(target);
+      setWguiSession(null);
+      setAuthError(null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!liveCatalogConfigured) return;
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "wgui-owlbear-auth") return;
+      void acceptWguiAuthMessage(event)
+        .then((session) => {
+          if (!session) return;
+          setWguiSession(session);
+          setAuthError(null);
+          setAuthBusy(false);
+        })
+        .catch((cause) => {
+          setAuthError(cause instanceof Error ? cause.message : "Unable to connect Wanderer's Guide.");
+          setAuthBusy(false);
+        });
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [liveCatalogConfigured, wguiTarget]);
 
   useEffect(() => {
     if (!role) return;
@@ -469,7 +534,7 @@ export default function App() {
     setCatalogError(null);
     setCatalogLoading(true);
 
-    loadCampaignOptions(role, controller.signal, wguiSession)
+    loadCampaignOptions(role, controller.signal, wguiSessionRef.current)
       .then((options) => {
         if (active) setCampaigns(options);
       })
@@ -486,7 +551,7 @@ export default function App() {
       active = false;
       controller.abort();
     };
-  }, [role, liveCatalogConfigured, wguiSession]);
+  }, [role, liveCatalogConfigured, sessionUserId]);
 
   useEffect(() => {
     if (!role || !selectedCampaignId) {
@@ -503,7 +568,7 @@ export default function App() {
     setCatalogError(null);
     setCatalogLoading(true);
 
-    loadEncounterOptions(selectedCampaignId, role, controller.signal, wguiSession)
+    loadEncounterOptions(selectedCampaignId, role, controller.signal, wguiSessionRef.current)
       .then((options) => {
         if (active) setEncounters(options);
       })
@@ -520,7 +585,7 @@ export default function App() {
       active = false;
       controller.abort();
     };
-  }, [role, selectedCampaignId, wguiSession]);
+  }, [role, selectedCampaignId, sessionUserId]);
 
   useEffect(() => {
     if (!role || !selectedCampaignId || !selectedEncounterId) {
@@ -540,7 +605,7 @@ export default function App() {
           role,
           controller.signal,
           { campaignId: selectedCampaignId, fightId: selectedEncounterId },
-          wguiSession,
+          wguiSessionRef.current,
           selectedCampaign?.name ?? null
         );
         if (!mounted) return;
@@ -568,7 +633,7 @@ export default function App() {
       controller.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [role, selectedCampaignId, selectedEncounterId, wguiSession, selectedCampaign?.name]);
+  }, [role, selectedCampaignId, selectedEncounterId, sessionUserId, selectedCampaign?.name]);
 
   const combatants = useMemo(
     () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
@@ -597,6 +662,7 @@ export default function App() {
   useEffect(() => {
     setTokenColorMatches([]);
     setTokenMatchMessage(null);
+    setTokenMatchFailed(false);
   }, [role, selectedCampaignId, selectedEncounterId]);
 
   const manualColorFor = (combatant: CombatantView) => {
@@ -614,6 +680,7 @@ export default function App() {
 
     setMatchingTokenColors(true);
     setTokenMatchMessage(null);
+    setTokenMatchFailed(false);
 
     try {
       // getSceneTokenVisuals reads CHARACTER item.name (Owlbear Accessibility
@@ -622,13 +689,18 @@ export default function App() {
       const tokens = await getSceneTokenVisuals(role);
       const matches = buildTokenColorMatches(combatants, tokens);
       const coloredMatches = matches.filter((match) => Boolean(match.backgroundColor));
+      const coloredNames = coloredMatches.map((match) => match.combatantName).join(", ");
 
       setTokenColorMatches(matches);
+      setTokenMatchFailed(false);
       setTokenMatchMessage(
-        `Matched ${matches.length} of ${combatants.length} combatants from ${tokens.length} Owlbear tokens · ${coloredMatches.length} SVG colors read`
+        coloredNames
+          ? `Matched ${coloredMatches.length} of ${combatants.length}: ${coloredNames}`
+          : `Matched 0 of ${combatants.length} combatants from ${tokens.length} Owlbear tokens. Token names did not line up.`
       );
     } catch (cause) {
       setTokenColorMatches([]);
+      setTokenMatchFailed(true);
       setTokenMatchMessage(
         cause instanceof Error ? cause.message : "Unable to match Owlbear token colors."
       );
@@ -709,18 +781,14 @@ export default function App() {
         <WguiSignIn
           busy={authBusy}
           error={authError}
-          onSubmit={(email, password) => {
+          target={wguiTarget}
+          onTargetChange={(target) => {
+            void signOutOfWgui().finally(() => setWguiTarget(target));
+          }}
+          onConnect={() => {
             setAuthBusy(true);
             setAuthError(null);
-            void signInToWgui(email, password)
-              .then((result) => {
-                if (result.error) {
-                  setAuthError(result.error);
-                } else {
-                  setWguiSession(result.session);
-                }
-              })
-              .finally(() => setAuthBusy(false));
+            startWguiAuth();
           }}
         />
       )}
@@ -752,7 +820,13 @@ export default function App() {
           </nav>
 
           {role === "GM" && tokenMatchMessage && (
-            <div className="picker-status" aria-live="polite">{tokenMatchMessage}</div>
+            <div
+              className={`token-match-banner ${tokenMatchFailed ? "error" : ""}`}
+              role="status"
+              aria-live="polite"
+            >
+              {tokenMatchMessage}
+            </div>
           )}
 
           <section className="table-head" aria-hidden="true">

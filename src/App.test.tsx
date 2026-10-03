@@ -165,7 +165,7 @@ describe("role-gated encounter loading and selection", () => {
       expect(screen.getByTitle("Matched token color: Hadrosaurid")).toBeTruthy();
     });
 
-    expect(screen.getByText(/Matched 2 of 2 combatants from 2 Owlbear tokens/)).toBeTruthy();
+    expect(screen.getByText(/Matched 2 of 2: Kota, Hadrosaurid/)).toBeTruthy();
   });
 
   it("passes Player role through the campaign and encounter catalog", async () => {
