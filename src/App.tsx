@@ -42,11 +42,13 @@ import {
   type WguiTarget
 } from "./wguiAuth";
 
-const SELECTION_KEY = "wanderers-owlbear-selection";
+function selectionKey(target: WguiTarget) {
+  return `wanderers-owlbear-selection-${target}`;
+}
 
-function readSelection(): { campaignId: string; encounterId: string } {
+function readSelection(target: WguiTarget): { campaignId: string; encounterId: string } {
   try {
-    const raw = localStorage.getItem(SELECTION_KEY);
+    const raw = localStorage.getItem(selectionKey(target));
     if (!raw) return { campaignId: "", encounterId: "" };
     const parsed = JSON.parse(raw) as { campaignId?: unknown; encounterId?: unknown };
     return {
@@ -58,12 +60,16 @@ function readSelection(): { campaignId: string; encounterId: string } {
   }
 }
 
-function writeSelection(campaignId: string, encounterId: string) {
+function writeSelection(target: WguiTarget, campaignId: string, encounterId: string) {
   try {
-    localStorage.setItem(SELECTION_KEY, JSON.stringify({ campaignId, encounterId }));
+    localStorage.setItem(selectionKey(target), JSON.stringify({ campaignId, encounterId }));
   } catch {
     // Private mode keeps the choice for this page load only.
   }
+}
+
+function campaignAccessDenied(message: string) {
+  return /do not have access to this campaign/i.test(message);
 }
 
 function signed(value?: number | null) {
@@ -438,10 +444,10 @@ export default function App() {
 
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
   const [encounters, setEncounters] = useState<EncounterOption[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState(() => readSelection().campaignId);
-  const [selectedEncounterId, setSelectedEncounterId] = useState(() => readSelection().encounterId);
+  const [selectedCampaignId, setSelectedCampaignId] = useState(() => readSelection(getWguiTarget()).campaignId);
+  const [selectedEncounterId, setSelectedEncounterId] = useState(() => readSelection(getWguiTarget()).encounterId);
   const [pickerOpen, setPickerOpen] = useState(() => {
-    const saved = readSelection();
+    const saved = readSelection(getWguiTarget());
     return !saved.campaignId || !saved.encounterId;
   });
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -520,9 +526,14 @@ export default function App() {
 
   useEffect(() => {
     return subscribeToWguiTarget((target) => {
+      const saved = readSelection(target);
       setWguiTargetState(target);
+      setSelectedCampaignId(saved.campaignId);
+      setSelectedEncounterId(saved.encounterId);
+      setPickerOpen(!saved.campaignId || !saved.encounterId);
       setWguiSession(null);
       setAuthError(null);
+      setError(null);
     });
   }, []);
 
@@ -598,7 +609,7 @@ export default function App() {
   }, [role, liveCatalogConfigured, sessionUserId]);
 
   useEffect(() => {
-    if (!role || !selectedCampaignId) {
+    if (!role || !selectedCampaign) {
       setEncounters([]);
       return;
     }
@@ -622,9 +633,14 @@ export default function App() {
         });
       })
       .catch((cause) => {
-        if (active && !controller.signal.aborted) {
-          setCatalogError(cause instanceof Error ? cause.message : "Unable to load WGUI encounters.");
+        if (!active || controller.signal.aborted) return;
+        const message = cause instanceof Error ? cause.message : "Unable to load WGUI encounters.";
+        if (campaignAccessDenied(message)) {
+          setSelectedCampaignId("");
+          setSelectedEncounterId("");
+          setPickerOpen(true);
         }
+        setCatalogError(message);
       })
       .finally(() => {
         if (active) setCatalogLoading(false);
@@ -634,10 +650,10 @@ export default function App() {
       active = false;
       controller.abort();
     };
-  }, [role, selectedCampaignId, sessionUserId]);
+  }, [role, selectedCampaign, sessionUserId]);
 
   useEffect(() => {
-    if (!role || !selectedCampaignId || !selectedEncounterId) {
+    if (!role || !selectedCampaign || !selectedEncounterId) {
       setState(null);
       setLoading(false);
       return;
@@ -668,14 +684,21 @@ export default function App() {
         if (!mounted) return;
         setState(next);
         setError(null);
+        timer = window.setTimeout(refresh, pollInterval);
       } catch (cause) {
         if (!mounted || controller.signal.aborted) return;
-        setError(cause instanceof Error ? cause.message : "Unable to load the encounter.");
-      } finally {
-        if (mounted) {
+        const message = cause instanceof Error ? cause.message : "Unable to load the encounter.";
+        setError(message);
+        if (campaignAccessDenied(message)) {
+          setSelectedCampaignId("");
+          setSelectedEncounterId("");
+          setPickerOpen(true);
           setLoading(false);
-          timer = window.setTimeout(refresh, pollInterval);
+          return;
         }
+        timer = window.setTimeout(refresh, pollInterval);
+      } finally {
+        if (mounted) setLoading(false);
       }
     };
 
@@ -693,8 +716,8 @@ export default function App() {
   }, [role, selectedCampaignId, selectedEncounterId, sessionUserId, selectedCampaign?.name]);
 
   useEffect(() => {
-    writeSelection(selectedCampaignId, selectedEncounterId);
-  }, [selectedCampaignId, selectedEncounterId]);
+    writeSelection(wguiTarget, selectedCampaignId, selectedEncounterId);
+  }, [wguiTarget, selectedCampaignId, selectedEncounterId]);
 
   const combatants = useMemo(
     () => [...(state?.snapshot.combatants ?? [])].sort((a, b) => (b.initiative ?? -999) - (a.initiative ?? -999)),
