@@ -19,7 +19,7 @@ test.describe("WGUI combat panel", () => {
     expect(manifestResponse.ok()).toBe(true);
     const manifest = await manifestResponse.json();
     expect(manifest.manifest_version).toBe(1);
-    expect(manifest.action?.popover).toBe("/");
+    expect(manifest.action?.popover).toBe("/?v=0.1.1");
 
     const iconResponse = await request.get(manifest.action.icon);
     expect(iconResponse.ok()).toBe(true);

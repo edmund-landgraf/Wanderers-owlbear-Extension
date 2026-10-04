@@ -8,7 +8,7 @@ describe("Owlbear manifest", () => {
     expect(manifest.manifest_version).toBe(1);
     expect(manifest.action).toMatchObject({
       title: "Wanderer's Guide",
-      popover: "/",
+      popover: "/?v=0.1.1",
       height: 760,
       width: 560
     });
