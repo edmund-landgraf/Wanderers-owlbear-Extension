@@ -174,6 +174,23 @@ describe("WGUI auth session handoff", () => {
     expect(opened).not.toBe("http://localhost:5194/");
   });
 
+  it("keeps a production access token and calls the production API", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ status: "success", data: [{ id: 4 }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const { acceptWguiAuthMessage, invokeWguiFunction } = await loadAuth();
+    const session = await acceptWguiAuthMessage(authMessage("https://wgui.wandersguide.site"));
+    expect(session?.userId).toBe("user-1");
+
+    await invokeWguiFunction("find-campaign", { user_id: "user-1" }, session!.accessToken);
+    const [url] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toBe("https://amba.wandersguide.site/functions/v1/find-campaign");
+  });
+
   it("stays on the local Wanderer's Guide origin", async () => {
     const { wguiAuthOrigin, wguiTargetProfile } = await loadAuth();
     expect(wguiAuthOrigin()).toBe("http://localhost:5194");

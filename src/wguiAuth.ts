@@ -1,16 +1,27 @@
 import { createClient, type AuthChangeEvent, type SupabaseClient } from "@supabase/supabase-js";
 
 const localAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzc3NzgwODAwLCJleHAiOjE5MzU1NDcyMDB9.vp6J2oNVQgHMzZG6B6iuTTb_gFPD7jzTyVoxiw0nhf0";
+const prodAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg2NDkyNTU1LCJleHAiOjIxMDE4NTI1NTV9.bhMpateR8zqIG6T5uW_zA5W3GVPh4Lj1I0jHTqafaEo";
 
-/** This extension talks only to the local Wanderer's Guide (port 5194) and local Kong. */
-const localProfile = {
-  appUrl: "http://localhost:5194",
-  supabaseUrl: "http://localhost:8000",
-  supabaseKey: localAnonKey
+type WguiBackend = "local" | "prod";
+
+const profiles: Record<WguiBackend, { appUrl: string; supabaseUrl: string; supabaseKey: string }> = {
+  local: {
+    appUrl: "http://localhost:5194",
+    supabaseUrl: "http://localhost:8000",
+    supabaseKey: localAnonKey
+  },
+  prod: {
+    appUrl: "https://wgui.wandersguide.site",
+    supabaseUrl: "https://amba.wandersguide.site",
+    supabaseKey: prodAnonKey
+  }
 };
 
+let activeBackend: WguiBackend = "local";
+
 export function wguiTargetProfile() {
-  return localProfile;
+  return profiles[activeBackend];
 }
 
 export type WguiSession = {
@@ -28,6 +39,7 @@ export function isWguiBackendConfigured(): boolean {
 }
 
 let client: SupabaseClient | null = null;
+let clientBackend: WguiBackend | null = null;
 const sessionListeners = new Set<(session: WguiSession | null, event: AuthChangeEvent) => void>();
 
 const SESSION_KEY = "wanderers-owlbear-wgui-session-local";
@@ -69,8 +81,12 @@ function readStoredSession(): WguiSession | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { accessToken?: unknown };
+    const parsed = JSON.parse(raw) as { accessToken?: unknown; backend?: unknown };
     if (typeof parsed.accessToken !== "string") return null;
+    if (parsed.backend === "prod" || parsed.backend === "local") {
+      if (clientBackend !== parsed.backend) client = null;
+      activeBackend = parsed.backend;
+    }
     const session = sessionFromAccessToken(parsed.accessToken);
     if (!session) localStorage.removeItem(SESSION_KEY);
     return session;
@@ -79,8 +95,9 @@ function readStoredSession(): WguiSession | null {
   }
 }
 
-function writeStoredSession(session: WguiSession) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ accessToken: session.accessToken }));
+function writeStoredSession(session: WguiSession, backend: WguiBackend) {
+  activeBackend = backend;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ accessToken: session.accessToken, backend }));
   sessionListeners.forEach((listener) => listener(session, "SIGNED_IN"));
 }
 
@@ -100,6 +117,7 @@ function getSupabase(): SupabaseClient | null {
 
   discardCopiedSupabaseSession();
   const profile = wguiTargetProfile();
+  clientBackend = activeBackend;
   client = createClient(profile.supabaseUrl, profile.supabaseKey, {
     auth: {
       storageKey: LEGACY_AUTH_KEY,
@@ -131,7 +149,13 @@ export function wguiAuthOrigin(): string {
 }
 
 export function isTrustedWguiAuthOrigin(origin: string): boolean {
-  return origin === wguiAuthOrigin();
+  return origin === profiles.local.appUrl || origin === profiles.prod.appUrl;
+}
+
+function backendForOrigin(origin: string): WguiBackend | null {
+  if (origin === profiles.prod.appUrl) return "prod";
+  if (origin === profiles.local.appUrl) return "local";
+  return null;
 }
 
 /**
@@ -159,8 +183,12 @@ export async function acceptWguiAuthMessage(
     throw new Error("Wanderer's Guide session expired. Log in on the site, then connect again.");
   }
 
+  const backend = backendForOrigin(event.origin);
+  if (!backend) return null;
+
   discardCopiedSupabaseSession();
-  writeStoredSession(session);
+  if (clientBackend !== backend) client = null;
+  writeStoredSession(session, backend);
   return session;
 }
 
