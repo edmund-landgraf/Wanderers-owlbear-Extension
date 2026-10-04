@@ -46,6 +46,7 @@ import {
   signOutOfWgui,
   startWguiAuth,
   subscribeToWguiSession,
+  wguiAuthOrigin,
   type WguiSession
 } from "./wguiAuth";
 
@@ -386,11 +387,13 @@ function CombatantRow({
 function WguiSignIn({
   busy,
   error,
-  onConnect
+  onConnect,
+  authOrigin
 }: {
   busy: boolean;
   error: string | null;
   onConnect: () => void;
+  authOrigin: string;
 }) {
   return (
     <section className="encounter-picker auth-picker">
@@ -398,7 +401,7 @@ function WguiSignIn({
         <span className="eyebrow">WGUI CONNECTION</span>
         <strong>Sign in to Wanderer's Guide</strong>
         <span className="muted">
-          Not authenticated. Click Connect Wanderer's Guide. It only checks the local session on port 5194. Log in on that site in your own tab, then click Connect again.
+          Connect uses the session already open on {authOrigin}. Log in there, then click Connect again.
         </span>
       </div>
 
@@ -531,6 +534,7 @@ export default function App() {
 
   const obrAvailable = isOwlbearAvailable();
   const liveCatalogConfigured = isWguiBackendConfigured();
+  const authOrigin = wguiAuthOrigin();
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
   const selectedEncounter = encounters.find((option) => option.id === selectedEncounterId);
 
@@ -975,6 +979,7 @@ export default function App() {
         <WguiSignIn
           busy={authBusy}
           error={authError}
+          authOrigin={authOrigin}
           onConnect={() => {
             setAuthBusy(true);
             setAuthError(null);
@@ -982,7 +987,7 @@ export default function App() {
             authWaitRef.current = window.setTimeout(() => {
               authWaitRef.current = null;
               setAuthBusy(false);
-              setAuthError("No local session yet. Log in on localhost:5194 in your own tab, then click Connect again.");
+              setAuthError(`No Wanderer's Guide session was returned. Log in on ${authOrigin}, then click Connect again.`);
             }, 8000);
             startWguiAuth();
           }}

@@ -3,8 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 function jwt(payload: Record<string, unknown>) {
-  const encode = (value: unknown) =>
-    Buffer.from(JSON.stringify(value)).toString("base64url");
+  const encode = (value: unknown) => btoa(JSON.stringify(value))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
   return `${encode({ alg: "none", typ: "JWT" })}.${encode(payload)}.sig`;
 }
 
@@ -172,6 +174,16 @@ describe("WGUI auth session handoff", () => {
     expect(opened).toContain("http://localhost:5194/owlbear/auth/index.html");
     expect(opened).toContain("targetOrigin=");
     expect(opened).not.toBe("http://localhost:5194/");
+  });
+
+  it("uses local WGUI only for local extension hosts", async () => {
+    const { wguiBackendForExtensionHost } = await loadAuth();
+
+    expect(wguiBackendForExtensionHost("localhost")).toBe("local");
+    expect(wguiBackendForExtensionHost("127.0.0.1")).toBe("local");
+    expect(wguiBackendForExtensionHost("dev.localhost")).toBe("local");
+    expect(wguiBackendForExtensionHost("owlbear.rodeo")).toBe("prod");
+    expect(wguiBackendForExtensionHost("wanderers-owlbear.pages.dev")).toBe("prod");
   });
 
   it("keeps a production access token and calls the production API", async () => {

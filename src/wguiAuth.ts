@@ -18,7 +18,19 @@ const profiles: Record<WguiBackend, { appUrl: string; supabaseUrl: string; supab
   }
 };
 
-let activeBackend: WguiBackend = "local";
+export function wguiBackendForExtensionHost(hostname: string): WguiBackend {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "[::1]" || normalized.endsWith(".localhost")
+    ? "local"
+    : "prod";
+}
+
+function initialBackend(): WguiBackend {
+  if (typeof window === "undefined") return "local";
+  return wguiBackendForExtensionHost(window.location.hostname);
+}
+
+let activeBackend: WguiBackend = initialBackend();
 
 export function wguiTargetProfile() {
   return profiles[activeBackend];

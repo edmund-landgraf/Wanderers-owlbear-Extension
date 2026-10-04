@@ -10,6 +10,8 @@ const MANUAL_TOKEN_COLORS_KEY = "wanderers-guide/manual-token-colors";
 const SHARED_TOKEN_COLORS_STORAGE = "wanderers-owlbear.shared-token-colors.v1";
 
 export type SharedTokenColorMap = Record<string, string>;
+type ShapeStyle = { strokeColor?: string; strokeOpacity?: number; strokeWidth?: number };
+type StyledShapeItem = Item & { style?: ShapeStyle };
 
 function queryRole(): ViewerRole | null {
   const value = new URLSearchParams(window.location.search).get("role")?.toUpperCase();
@@ -58,11 +60,11 @@ export function subscribeToViewerRole(onRole: (role: ViewerRole) => void): () =>
 function attachedRingColor(itemId: string, items: Item[]): string | null {
   const rings = items.filter((other) => {
     if (other.attachedTo !== itemId || !isShape(other) || other.shapeType !== "CIRCLE") return false;
-    const { strokeColor, strokeOpacity, strokeWidth } = other.style ?? {};
+    const { strokeColor, strokeOpacity, strokeWidth } = (other as StyledShapeItem).style ?? {};
     return Boolean(strokeColor) && strokeOpacity !== 0 && strokeWidth !== 0;
   });
   rings.sort((left, right) => (right.scale?.x ?? 1) - (left.scale?.x ?? 1));
-  return rings[0]?.style.strokeColor ?? null;
+  return (rings[0] as StyledShapeItem | undefined)?.style?.strokeColor ?? null;
 }
 
 async function itemToTokenVisual(item: Item, items: Item[]): Promise<OwlbearTokenVisual | null> {
