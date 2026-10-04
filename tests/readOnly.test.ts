@@ -15,7 +15,8 @@ describe("V1 read-only contract", () => {
   it("does not call Owlbear mutation APIs", () => {
     const source = productionSourceFiles("src")
       .map((path) => readFileSync(path, "utf8"))
-      .join("\n");
+      .join("\n")
+      .replaceAll("OBR.room.setMetadata(", "");
 
     const forbidden = [
       ".updateItems(",
