@@ -43,10 +43,13 @@ import {
   acceptWguiAuthMessage,
   getWguiSession,
   isWguiBackendConfigured,
+  signInWguiWithPassword,
   signOutOfWgui,
   startWguiAuth,
+  startWguiGoogleSignIn,
   subscribeToWguiSession,
   wguiAuthOrigin,
+  wguiUsesHostedLogin,
   type WguiSession
 } from "./wguiAuth";
 
@@ -387,29 +390,110 @@ function CombatantRow({
 function WguiSignIn({
   busy,
   error,
+  hosted,
   onConnect,
+  onPasswordSignIn,
+  onGoogleSignIn,
   authOrigin
 }: {
   busy: boolean;
   error: string | null;
+  hosted: boolean;
   onConnect: () => void;
+  onPasswordSignIn: (email: string, password: string) => void;
+  onGoogleSignIn: () => void;
   authOrigin: string;
 }) {
+  const [tab, setTab] = useState<"email" | "google">("email");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   return (
     <section className="encounter-picker auth-picker">
       <div className="picker-heading">
         <span className="eyebrow">WGUI CONNECTION</span>
         <strong>Sign in to Wanderer's Guide</strong>
         <span className="muted">
-          Connect uses the session already open on {authOrigin}. The popup should close after it checks your session.
+          {hosted
+            ? "Use your Wanderer's Guide email or Google account."
+            : `Connect uses the session already open on ${authOrigin}. The popup should close after it checks your session.`}
         </span>
       </div>
 
+      {hosted && (
+        <div className="target-switch" role="tablist" aria-label="Sign in method">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "email"}
+            className={tab === "email" ? "selected" : ""}
+            onClick={() => setTab("email")}
+          >
+            Email
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "google"}
+            className={tab === "google" ? "selected" : ""}
+            onClick={() => setTab("google")}
+          >
+            Google
+          </button>
+        </div>
+      )}
+
       {error && <div className="picker-error">{error}</div>}
 
-      <button className="auth-submit" type="button" disabled={busy} onClick={onConnect}>
-        {busy ? "Opening connection window…" : "Connect Wanderer's Guide"}
-      </button>
+      {hosted && tab === "email" && (
+        <form
+          className="auth-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onPasswordSignIn(email, password);
+          }}
+        >
+          <label className="picker-field">
+            <span>Email</span>
+            <input
+              type="email"
+              name="email"
+              autoComplete="username"
+              required
+              value={email}
+              disabled={busy}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label className="picker-field">
+            <span>Password</span>
+            <input
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              disabled={busy}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <button className="auth-submit" type="submit" disabled={busy}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+      )}
+
+      {hosted && tab === "google" && (
+        <button className="auth-submit" type="button" disabled={busy} onClick={onGoogleSignIn}>
+          {busy ? "Opening Google…" : "Continue with Google"}
+        </button>
+      )}
+
+      {!hosted && (
+        <button className="auth-submit" type="button" disabled={busy} onClick={onConnect}>
+          {busy ? "Opening connection window…" : "Connect Wanderer's Guide"}
+        </button>
+      )}
     </section>
   );
 }
@@ -535,6 +619,7 @@ export default function App() {
   const obrAvailable = isOwlbearAvailable();
   const liveCatalogConfigured = isWguiBackendConfigured();
   const authOrigin = wguiAuthOrigin();
+  const hostedLogin = wguiUsesHostedLogin();
   const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId);
   const selectedEncounter = encounters.find((option) => option.id === selectedEncounterId);
 
@@ -979,7 +1064,39 @@ export default function App() {
         <WguiSignIn
           busy={authBusy}
           error={authError}
+          hosted={hostedLogin}
           authOrigin={authOrigin}
+          onPasswordSignIn={(email, password) => {
+            setAuthBusy(true);
+            setAuthError(null);
+            void signInWguiWithPassword(email, password)
+              .then((session) => {
+                setWguiSession(session);
+                setAuthError(null);
+              })
+              .catch((cause) => {
+                setAuthError(cause instanceof Error ? cause.message : "Unable to sign in.");
+              })
+              .finally(() => setAuthBusy(false));
+          }}
+          onGoogleSignIn={() => {
+            setAuthBusy(true);
+            setAuthError(null);
+            if (authWaitRef.current !== null) window.clearTimeout(authWaitRef.current);
+            authWaitRef.current = window.setTimeout(() => {
+              authWaitRef.current = null;
+              setAuthBusy(false);
+              setAuthError("Google sign-in did not return a session. Finish the popup, then try again.");
+            }, 120000);
+            void startWguiGoogleSignIn().catch((cause) => {
+              if (authWaitRef.current !== null) {
+                window.clearTimeout(authWaitRef.current);
+                authWaitRef.current = null;
+              }
+              setAuthBusy(false);
+              setAuthError(cause instanceof Error ? cause.message : "Unable to start Google sign-in.");
+            });
+          }}
           onConnect={() => {
             setAuthBusy(true);
             setAuthError(null);

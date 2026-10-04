@@ -198,8 +198,10 @@ describe("WGUI auth session handoff", () => {
       })
     );
 
-    const { acceptWguiAuthMessage, invokeWguiFunction } = await loadAuth();
+    const { acceptWguiAuthMessage, invokeWguiFunction, wguiUsesHostedLogin } = await loadAuth();
+    expect(wguiUsesHostedLogin()).toBe(false);
     const session = await acceptWguiAuthMessage(authMessage("https://wgui.wandersguide.site"));
+    expect(wguiUsesHostedLogin()).toBe(true);
     expect(session?.userId).toBe("user-1");
 
     await invokeWguiFunction("find-campaign", { user_id: "user-1" }, session!.accessToken);

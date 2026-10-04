@@ -167,6 +167,53 @@ export function wguiAuthOrigin(): string {
   return new URL(wguiTargetProfile().appUrl).origin;
 }
 
+/** Production signs in here. Localhost still hands off an existing site session. */
+export function wguiUsesHostedLogin(): boolean {
+  return activeBackend === "prod";
+}
+
+export async function signInWguiWithPassword(email: string, password: string): Promise<WguiSession> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("WGUI backend is not configured.");
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password
+  });
+  if (error) throw new Error(error.message);
+
+  const accessToken = data.session?.access_token;
+  if (!accessToken) throw new Error("Sign in did not return a session.");
+
+  const session = sessionFromAccessToken(accessToken);
+  if (!session) throw new Error("Wanderer's Guide session expired. Sign in again.");
+
+  discardCopiedSupabaseSession();
+  writeStoredSession(session, activeBackend);
+  return session;
+}
+
+/** Opens Google in a popup. The Wanderer's Guide handoff page posts the session back. */
+export async function startWguiGoogleSignIn(): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("WGUI backend is not configured.");
+
+  const redirectTo = wguiAuthUrl(activeBackend, window.location.origin).href;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      queryParams: { prompt: "select_account" }
+    }
+  });
+  if (error) throw new Error(error.message);
+  if (!data.url) throw new Error("Google sign-in did not return a URL.");
+
+  const timestamp = String(Date.now());
+  window.open(data.url, `wgui-owlbear-auth-${timestamp}`, "popup,width=520,height=640");
+}
+
 export function isTrustedWguiAuthOrigin(origin: string): boolean {
   return origin === profiles.local.appUrl || origin === profiles.prod.appUrl;
 }
