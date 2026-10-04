@@ -166,13 +166,17 @@ describe("WGUI auth session handoff", () => {
 
   it("opens the handoff page instead of the Wanderer's Guide app", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.spyOn(Date, "now").mockReturnValue(1791072000000);
     const { startWguiAuth } = await loadAuth();
 
     startWguiAuth();
 
     const opened = String(open.mock.calls[0]?.[0]);
+    const target = String(open.mock.calls[0]?.[1]);
     expect(opened).toContain("http://localhost:5194/owlbear/auth");
     expect(opened).toContain("targetOrigin=");
+    expect(opened).toContain("cacheBust=1791072000000");
+    expect(target).toBe("wgui-owlbear-auth-1791072000000");
     expect(opened).not.toBe("http://localhost:5194/");
   });
 
