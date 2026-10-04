@@ -9,5 +9,14 @@ export default defineConfig({
     headers: {
       "Access-Control-Allow-Origin": "*"
     }
+  },
+  preview: {
+    host: "127.0.0.1",
+    port: 5202,
+    strictPort: true,
+    allowedHosts: ["wanderers-owlbear.unwhelm.online"],
+    headers: {
+      "Access-Control-Allow-Origin": "*"
+    }
   }
 });
