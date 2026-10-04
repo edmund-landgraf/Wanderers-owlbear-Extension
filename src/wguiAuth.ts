@@ -37,8 +37,10 @@ export function wguiTargetProfile(backend: WguiBackend = activeBackend) {
 }
 
 /** Handoff page for a backend. The popup reads the session stored on that origin. */
-export function wguiAuthUrl(backend: WguiBackend = activeBackend): string {
-  return new URL("/owlbear/auth/index.html", wguiTargetProfile(backend).appUrl).href;
+export function wguiAuthUrl(backend: WguiBackend = activeBackend, targetOrigin?: string): URL {
+  const url = new URL("/owlbear/auth", wguiTargetProfile(backend).appUrl);
+  if (targetOrigin) url.searchParams.set("targetOrigin", targetOrigin);
+  return url;
 }
 
 export type WguiSession = {
@@ -180,8 +182,7 @@ function backendForOrigin(origin: string): WguiBackend | null {
  * and posts the access token back. It must not be the full Wanderer's Guide app.
  */
 export function startWguiAuth(): void {
-  const url = new URL(wguiAuthUrl());
-  url.searchParams.set("targetOrigin", window.location.origin);
+  const url = wguiAuthUrl(activeBackend, window.location.origin);
   window.open(url.href, "wgui-owlbear-auth", "popup,width=520,height=420");
 }
 

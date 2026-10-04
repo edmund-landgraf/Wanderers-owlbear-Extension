@@ -171,7 +171,7 @@ describe("WGUI auth session handoff", () => {
     startWguiAuth();
 
     const opened = String(open.mock.calls[0]?.[0]);
-    expect(opened).toContain("http://localhost:5194/owlbear/auth/index.html");
+    expect(opened).toContain("http://localhost:5194/owlbear/auth");
     expect(opened).toContain("targetOrigin=");
     expect(opened).not.toBe("http://localhost:5194/");
   });
