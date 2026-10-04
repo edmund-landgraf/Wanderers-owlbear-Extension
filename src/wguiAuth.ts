@@ -38,7 +38,7 @@ export function wguiTargetProfile(backend: WguiBackend = activeBackend) {
 
 /** Handoff page for a backend. The popup reads the session stored on that origin. */
 export function wguiAuthUrl(backend: WguiBackend = activeBackend, targetOrigin?: string): URL {
-  const url = new URL("/owlbear/auth", wguiTargetProfile(backend).appUrl);
+  const url = new URL("/owlbear/auth/index.html", wguiTargetProfile(backend).appUrl);
   if (targetOrigin) url.searchParams.set("targetOrigin", targetOrigin);
   return url;
 }
