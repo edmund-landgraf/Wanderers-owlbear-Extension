@@ -183,7 +183,9 @@ function backendForOrigin(origin: string): WguiBackend | null {
  */
 export function startWguiAuth(): void {
   const url = wguiAuthUrl(activeBackend, window.location.origin);
-  window.open(url.href, "wgui-owlbear-auth", "popup,width=520,height=420");
+  const timestamp = String(Date.now());
+  url.searchParams.set("cacheBust", timestamp);
+  window.open(url.href, `wgui-owlbear-auth-${timestamp}`, "popup,width=520,height=420");
 }
 
 export async function acceptWguiAuthMessage(

@@ -401,7 +401,7 @@ function WguiSignIn({
         <span className="eyebrow">WGUI CONNECTION</span>
         <strong>Sign in to Wanderer's Guide</strong>
         <span className="muted">
-          Connect uses the session already open on {authOrigin}. Log in there, then click Connect again.
+          Connect uses the session already open on {authOrigin}. The popup should close after it checks your session.
         </span>
       </div>
 
@@ -987,8 +987,10 @@ export default function App() {
             authWaitRef.current = window.setTimeout(() => {
               authWaitRef.current = null;
               setAuthBusy(false);
-              setAuthError(`No Wanderer's Guide session was returned. Log in on ${authOrigin}, then click Connect again.`);
-            }, 8000);
+              setAuthError(
+                `No Wanderer's Guide session was returned. If the popup shows the WGUI landing page or an app update prompt, open the updated app or refresh that popup, then click Connect again.`
+              );
+            }, 15000);
             startWguiAuth();
           }}
         />
