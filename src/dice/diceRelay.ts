@@ -8,8 +8,11 @@ import {
 export type DiceRelay = {
   /** Mark logs already on the encounter so a reconnect does not replay them. */
   seed(meta: unknown, now?: number): void;
-  /** New logs since the last seed or poll. */
-  takeNew(meta: unknown, now?: number): WgDiceAnimationEvent[];
+  /**
+   * New logs since the last seed or poll.
+   * A new `scope` (campaign and encounter) marks the current log as already seen.
+   */
+  takeNew(meta: unknown, scope?: string, now?: number): WgDiceAnimationEvent[];
   /** Whether this client should open the overlay for a broadcast. */
   accept(event: WgDiceAnimationEvent, role: ViewerRole, now?: number): boolean;
 };
@@ -18,6 +21,7 @@ export function createDiceRelay(now: () => number = Date.now): DiceRelay {
   const announced = new Set<string>();
   const presented = new Set<string>();
   let seeded = false;
+  let scopeKey = "";
 
   return {
     seed(meta) {
@@ -26,12 +30,13 @@ export function createDiceRelay(now: () => number = Date.now): DiceRelay {
       }
       seeded = true;
     },
-    takeNew(meta) {
+    takeNew(meta, scope = "") {
       if (meta == null) return [];
       const events = diceEventsFromEncounterMeta(meta, now());
-      if (!seeded) {
+      if (!seeded || scope !== scopeKey) {
         for (const event of events) announced.add(event.eventId);
         seeded = true;
+        scopeKey = scope;
         return [];
       }
       const fresh = events.filter((event) => !announced.has(event.eventId));

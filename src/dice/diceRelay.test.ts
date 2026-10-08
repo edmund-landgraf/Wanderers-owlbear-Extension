@@ -27,6 +27,13 @@ describe("createDiceRelay", () => {
     expect(relay.takeNew(meta)).toEqual([]);
   });
 
+  it("does not replay the log already stored on a newly selected encounter", () => {
+    const relay = createDiceRelay(() => 1_000);
+    relay.takeNew({ dice_roll_log: [] }, "campaign:previous");
+    expect(relay.takeNew(meta, "campaign:loaded")).toEqual([]);
+    expect(relay.takeNew(meta, "campaign:loaded")).toEqual([]);
+  });
+
   it("announces a log that appears after the first read", () => {
     const relay = createDiceRelay(() => 1_000);
     relay.seed({ dice_roll_log: [] });

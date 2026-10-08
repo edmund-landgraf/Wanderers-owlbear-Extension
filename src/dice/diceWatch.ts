@@ -60,7 +60,8 @@ export function startDiceWatch() {
         const selection = readSelection();
         if (session && selection) {
           const meta = await loadEncounterDiceMeta(selection, session);
-          for (const event of relay.takeNew(meta)) {
+          const scope = `${selection.campaignId}:${selection.fightId}`;
+          for (const event of relay.takeNew(meta, scope)) {
             if (event.audience === "gm" && role !== "GM") continue;
             await present(event);
             await OBR.broadcast.sendMessage(DICE_CHANNEL, event, { destination: "ALL" });
