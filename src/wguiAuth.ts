@@ -193,22 +193,35 @@ export async function signInWguiWithPassword(email: string, password: string): P
   return session;
 }
 
-/** Opens Google in a popup. The Wanderer's Guide handoff page posts the session back. */
-export async function startWguiGoogleSignIn(): Promise<void> {
+export type WguiOAuthProvider = "google" | "discord" | "github";
+
+const oauthLabels: Record<WguiOAuthProvider, string> = {
+  google: "Google",
+  discord: "Discord",
+  github: "GitHub"
+};
+
+export function wguiOAuthLabel(provider: WguiOAuthProvider): string {
+  return oauthLabels[provider];
+}
+
+/** Opens an OAuth provider in a popup. The Wanderer's Guide handoff page posts the session back. */
+export async function startWguiOAuthSignIn(provider: WguiOAuthProvider): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) throw new Error("WGUI backend is not configured.");
 
+  const label = oauthLabels[provider];
   const redirectTo = wguiAuthUrl(activeBackend, window.location.origin).href;
   const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
+    provider,
     options: {
       redirectTo,
       skipBrowserRedirect: true,
-      queryParams: { prompt: "select_account" }
+      ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {})
     }
   });
   if (error) throw new Error(error.message);
-  if (!data.url) throw new Error("Google sign-in did not return a URL.");
+  if (!data.url) throw new Error(`${label} sign-in did not return a URL.`);
 
   const timestamp = String(Date.now());
   window.open(data.url, `wgui-owlbear-auth-${timestamp}`, "popup,width=520,height=640");

@@ -46,10 +46,12 @@ import {
   signInWguiWithPassword,
   signOutOfWgui,
   startWguiAuth,
-  startWguiGoogleSignIn,
+  startWguiOAuthSignIn,
   subscribeToWguiSession,
   wguiAuthOrigin,
+  wguiOAuthLabel,
   wguiUsesHostedLogin,
+  type WguiOAuthProvider,
   type WguiSession
 } from "./wguiAuth";
 
@@ -393,7 +395,7 @@ function WguiSignIn({
   hosted,
   onConnect,
   onPasswordSignIn,
-  onGoogleSignIn,
+  onOAuthSignIn,
   authOrigin
 }: {
   busy: boolean;
@@ -401,10 +403,10 @@ function WguiSignIn({
   hosted: boolean;
   onConnect: () => void;
   onPasswordSignIn: (email: string, password: string) => void;
-  onGoogleSignIn: () => void;
+  onOAuthSignIn: (provider: WguiOAuthProvider) => void;
   authOrigin: string;
 }) {
-  const [tab, setTab] = useState<"email" | "google">("email");
+  const [tab, setTab] = useState<"email" | WguiOAuthProvider>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -415,7 +417,7 @@ function WguiSignIn({
         <strong>Sign in to Wanderer's Guide</strong>
         <span className="muted">
           {hosted
-            ? "Use your Wanderer's Guide email or Google account."
+            ? "Use your Wanderer's Guide email, Google, Discord, or GitHub account."
             : `Connect uses the session already open on ${authOrigin}. The popup should close after it checks your session.`}
         </span>
       </div>
@@ -439,6 +441,24 @@ function WguiSignIn({
             onClick={() => setTab("google")}
           >
             Google
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "discord"}
+            className={tab === "discord" ? "selected" : ""}
+            onClick={() => setTab("discord")}
+          >
+            Discord
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "github"}
+            className={tab === "github" ? "selected" : ""}
+            onClick={() => setTab("github")}
+          >
+            GitHub
           </button>
         </div>
       )}
@@ -483,9 +503,9 @@ function WguiSignIn({
         </form>
       )}
 
-      {hosted && tab === "google" && (
-        <button className="auth-submit" type="button" disabled={busy} onClick={onGoogleSignIn}>
-          {busy ? "Opening Google…" : "Continue with Google"}
+      {hosted && tab !== "email" && (
+        <button className="auth-submit" type="button" disabled={busy} onClick={() => onOAuthSignIn(tab)}>
+          {busy ? `Opening ${wguiOAuthLabel(tab)}…` : `Continue with ${wguiOAuthLabel(tab)}`}
         </button>
       )}
 
@@ -1079,22 +1099,23 @@ export default function App() {
               })
               .finally(() => setAuthBusy(false));
           }}
-          onGoogleSignIn={() => {
+          onOAuthSignIn={(provider) => {
+            const label = wguiOAuthLabel(provider);
             setAuthBusy(true);
             setAuthError(null);
             if (authWaitRef.current !== null) window.clearTimeout(authWaitRef.current);
             authWaitRef.current = window.setTimeout(() => {
               authWaitRef.current = null;
               setAuthBusy(false);
-              setAuthError("Google sign-in did not return a session. Finish the popup, then try again.");
+              setAuthError(`${label} sign-in did not return a session. Finish the popup, then try again.`);
             }, 120000);
-            void startWguiGoogleSignIn().catch((cause) => {
+            void startWguiOAuthSignIn(provider).catch((cause) => {
               if (authWaitRef.current !== null) {
                 window.clearTimeout(authWaitRef.current);
                 authWaitRef.current = null;
               }
               setAuthBusy(false);
-              setAuthError(cause instanceof Error ? cause.message : "Unable to start Google sign-in.");
+              setAuthError(cause instanceof Error ? cause.message : `Unable to start ${label} sign-in.`);
             });
           }}
           onConnect={() => {
