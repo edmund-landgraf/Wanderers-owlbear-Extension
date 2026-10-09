@@ -16,7 +16,10 @@ export async function requestSvgTokens(tokens: MakeTokenRequest[]): Promise<numb
 
   const requestId = crypto.randomUUID();
   const reply = await new Promise<TokenReply>((resolve, reject) => {
-    let timer = window.setTimeout(() => finish(new Error("Load SVG Token Owlbear in this room.")), ACK_WAIT_MS);
+    let timer = window.setTimeout(
+      () => finish(new Error("SVG Token Owlbear is in the room, but it did not acknowledge the request.")),
+      ACK_WAIT_MS
+    );
     const unsubscribe = OBR.broadcast.onMessage(SVG_TOKEN_CHANNEL, (message) => {
       const data = message.data as TokenReply | undefined;
       if (!data || data.requestId !== requestId) return;
