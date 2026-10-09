@@ -24,6 +24,9 @@ import {
   type TokenColorMatch
 } from "./tokenMatch";
 import { tokenGlyphs, tokenLabelFromName } from "./tokenLabel";
+import { planMakeTokens } from "./makeTokens";
+import { requestSvgTokens } from "./makeTokensRequest";
+import OBR from "@owlbear-rodeo/sdk";
 import {
   getManualTokenColor,
   readManualTokenColors,
@@ -605,6 +608,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [tokenColorMatches, setTokenColorMatches] = useState<TokenColorMatch[]>([]);
   const [matchingTokenColors, setMatchingTokenColors] = useState(false);
+  const [makingTokens, setMakingTokens] = useState(false);
   const [tokenMatchMessage, setTokenMatchMessage] = useState<string | null>(null);
   const [tokenMatchLogOpen, setTokenMatchLogOpen] = useState(false);
   const [tokenMatchLog, setTokenMatchLog] = useState<string | null>(null);
@@ -1012,6 +1016,49 @@ export default function App() {
     }
   };
 
+  const makeTokens = async () => {
+    if (role !== "GM" || makingTokens) return;
+    const { tokens, colorByName } = planMakeTokens(
+      combatants,
+      Object.fromEntries(combatants.map((combatant) => [
+        combatant.id,
+        {
+          matched: tokenMatches.get(combatant.id)?.backgroundColor,
+          manual: getManualTokenColor(campaignScope, combatant.name),
+          shared: sharedColors[sharedTokenColorKey(combatant.name)]
+        }
+      ]))
+    );
+    if (tokens.length === 0) {
+      setTokenMatchFailed(true);
+      setTokenMatchMessage("No combatants to make tokens for.");
+      return;
+    }
+
+    for (const [name, color] of Object.entries(colorByName)) {
+      saveManualTokenColor(campaignScope, name, color);
+    }
+    setManualColorVersion((value) => value + 1);
+    void publishManualTokenColorBook(readManualTokenColors());
+
+    setMakingTokens(true);
+    setTokenMatchFailed(false);
+    setTokenMatchMessage(null);
+    try {
+      const count = await requestSvgTokens(tokens);
+      setTokenMatchMessage(`Created ${count} token${count === 1 ? "" : "s"}.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Load SVG Token Owlbear in this room.";
+      setTokenMatchFailed(true);
+      setTokenMatchMessage(message);
+      if (OBR.isAvailable) {
+        void OBR.notification.show(message, "ERROR");
+      }
+    } finally {
+      setMakingTokens(false);
+    }
+  };
+
   if (!role) {
     return (
       <main className="app-shell role-loading" aria-live="polite">
@@ -1058,6 +1105,16 @@ export default function App() {
               disabled={matchingTokenColors}
             >
               {matchingTokenColors ? "Matching…" : "Match token colors"}
+            </button>
+          )}
+          {ready && role === "GM" && (
+            <button
+              className="change-selection"
+              type="button"
+              onClick={() => void makeTokens()}
+              disabled={makingTokens}
+            >
+              {makingTokens ? "Making…" : "Make Tokens"}
             </button>
           )}
           <span className={`role-badge ${role === "GM" ? "gm" : "player"}`}>
